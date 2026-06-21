@@ -78,8 +78,8 @@ export default function Home() {
           <div className="mx-auto mt-8 flex max-w-md items-center justify-center gap-2.5 rounded-xl border border-accent/25 bg-accent-dim/30 px-4 py-3 text-sm">
             <WifiOffIcon className="h-5 w-5 shrink-0 text-accent" />
             <span className="text-pretty text-left text-muted">
-              <span className="font-medium text-text">Don&apos;t trust us? Cut your internet first.</span>{" "}
-              It works exactly the same — because there&apos;s nowhere for your data to go.
+              <span className="font-medium text-text">Don&apos;t believe us? Switch off your internet and see it still work.</span>{" "}
+              Nothing changes — because there&apos;s nowhere for your data to go.
             </span>
           </div>
         </div>
