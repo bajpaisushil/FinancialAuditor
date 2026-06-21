@@ -168,6 +168,8 @@ export interface ParseOutput {
 export interface ParseOptions {
   /** Read ambiguous dates as DD/MM (true) vs MM/DD (false). */
   dayFirst?: boolean;
+  /** Latest year to assume when a statement uses year-less dates (e.g. "20 Jun"). */
+  referenceYear?: number;
 }
 
 /**

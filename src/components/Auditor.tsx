@@ -69,7 +69,7 @@ export default function Auditor() {
         const region = detectRegion();
         const { txns, notes, currency } = await parsePdf(
           file,
-          { dayFirst: isDayFirstRegion(region) },
+          { dayFirst: isDayFirstRegion(region), referenceYear: new Date().getFullYear() },
           pw
         );
         setCurrency(currency ?? regionCurrency(region));

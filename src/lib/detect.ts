@@ -22,6 +22,7 @@ const STATE_CODES = new Set([
 const NAME_STOPWORDS = new Set([
   "upi", "neft", "imps", "rtgs", "ach", "pos", "atm", "emi", "ecs", "nach",
   "dr", "cr", "ref", "txn", "trn", "id", "no", "rrn", "payment", "pmt", "pay",
+  "mr", "mrs", "ms", "smt", "shri", "sri", "so", "mgf",
   "paid", "sent", "received", "recd", "rcvd", "money", "added", "transfer",
   "transferred", "trf", "tfr", "to", "from", "via", "by", "the", "for", "of",
   "account", "ac", "acct", "bank", "wallet", "recharge", "bill", "billpay",
@@ -166,8 +167,9 @@ export function normalizeMerchant(raw: string): { key: string; name: string } {
 
   const finalTokens = kept.length ? kept : tokens.slice(0, 2);
   const key = finalTokens.join(" ").trim() || s.trim() || raw.toLowerCase().trim();
+  // Keep short ALL-CAPS brand-ish tokens uppercase only when 2 chars (e.g. "TV"); otherwise title-case.
   const name = finalTokens
-    .map((t) => (t.length <= 3 ? t.toUpperCase() : t[0].toUpperCase() + t.slice(1)))
+    .map((t) => (t.length <= 2 ? t.toUpperCase() : t[0].toUpperCase() + t.slice(1)))
     .join(" ");
   return { key, name: name || raw.trim() };
 }
