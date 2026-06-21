@@ -21,8 +21,28 @@ export default function ServiceWorker() {
       // claims control a beat after `ready` resolves; fetching before then
       // bypasses the SW, so the chunk never lands in the durable SW cache.
       for (let i = 0; i < 60 && !navigator.serviceWorker.controller; i++) await sleep(100);
-      // Same dynamic import specifier as lib/pdf.ts → same chunk, so this
-      // caches the exact chunk a later parse will request.
+      if (!navigator.serviceWorker.controller) return;
+
+      // Re-fetch every same-origin asset THIS page already loaded (its JS/CSS
+      // chunks, fonts, the manifest…). On a first visit those were requested
+      // before the SW took control, so they bypassed its cache. Pulling them
+      // again now — while we're online and the SW is in charge — lands them in
+      // the durable cache, so a later offline reload has the whole app shell,
+      // not just the pre-rendered HTML. Without this, going offline after one
+      // visit leaves a dead shell that can't hydrate.
+      try {
+        const assets = performance
+          .getEntriesByType("resource")
+          .map((e) => e.name)
+          .filter((u) => u.startsWith(window.location.origin) && /\.(js|mjs|css|woff2?|json|svg)(\?|$)/i.test(u));
+        await Promise.allSettled([...new Set(assets)].map((u) => fetch(u).catch(() => {})));
+      } catch {
+        /* performance API or fetch unavailable — non-fatal */
+      }
+
+      // Lazy PDF engine + its worker: never loaded on a normal visit, so warm
+      // them explicitly. Same dynamic import specifier as lib/pdf.ts → same
+      // chunk, so this caches the exact chunk a later parse will request.
       import("pdfjs-dist").catch(() => {});
       fetch("/pdf.worker.min.mjs").catch(() => {});
     };
