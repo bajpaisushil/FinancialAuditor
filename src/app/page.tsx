@@ -1,4 +1,5 @@
 import Auditor from "@/components/Auditor";
+import ExportGuide from "@/components/ExportGuide";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -25,6 +26,7 @@ export default function Home() {
           </div>
           <nav className="hidden items-center gap-6 text-sm text-muted sm:flex">
             <a href="#how" className="transition hover:text-text">How it works</a>
+            <a href="#export" className="transition hover:text-text">Get your statement</a>
             <a href="#why" className="transition hover:text-text">Why trust it</a>
             <a href="#faq" className="transition hover:text-text">FAQ</a>
           </nav>
@@ -151,6 +153,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Where to get your statement */}
+      <ExportGuide />
 
       {/* What makes it different */}
       <section className="border-y border-border-soft bg-bg-soft/40 py-20">

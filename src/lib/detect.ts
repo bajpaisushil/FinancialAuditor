@@ -36,7 +36,7 @@ export function normalizeMerchant(raw: string): { key: string; name: string } {
 
   const kept: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
-    let t = tokens[i];
+    const t = tokens[i];
     if (!t) continue;
     // Drop pure numbers and long alphanumeric ids (store #, ref ids).
     if (/^\d+$/.test(t)) continue;

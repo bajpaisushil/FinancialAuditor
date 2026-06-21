@@ -2,10 +2,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import { parseCsv } from "@/lib/parser";
-import { analyze } from "@/lib/detect";
+import { runAnalysis } from "@/lib/analyze";
 import { sampleCsv } from "@/lib/sample";
-import type { AuditResult } from "@/lib/types";
-import ResultsDashboard from "./ResultsDashboard";
+import type { Analysis } from "@/lib/types";
+import SpendingDashboard from "./SpendingDashboard";
 import SupportModal from "./SupportModal";
 import OfflineBadge from "./OfflineBadge";
 import { BoltIcon, FileIcon, LockIcon, UploadIcon } from "./icons";
@@ -14,7 +14,7 @@ type State =
   | { phase: "idle" }
   | { phase: "working" }
   | { phase: "error"; message: string }
-  | { phase: "done"; result: AuditResult; fileName: string };
+  | { phase: "done"; analysis: Analysis; fileName: string };
 
 export default function Auditor() {
   const [state, setState] = useState<State>({ phase: "idle" });
@@ -29,10 +29,10 @@ export default function Auditor() {
     setTimeout(() => {
       try {
         const { txns, notes } = parseCsv(text);
-        const result = analyze(txns, notes);
-        setState({ phase: "done", result, fileName });
+        const analysis = runAnalysis(txns, notes);
+        setState({ phase: "done", analysis, fileName });
         // One gentle, dismissible support nudge after the first real result.
-        if (!nudged.current && result.subscriptions.length > 0) {
+        if (!nudged.current && analysis.overview.txnCount > 0) {
           nudged.current = true;
           setTimeout(() => setShowSupport(true), 1600);
         }
@@ -74,7 +74,7 @@ export default function Auditor() {
   );
 
   const annualSavings =
-    state.phase === "done" ? state.result.totalAnnual : 0;
+    state.phase === "done" ? state.analysis.audit.totalAnnual : 0;
 
   return (
     <div id="auditor" className="mx-auto w-full max-w-3xl scroll-mt-24">
@@ -85,8 +85,8 @@ export default function Auditor() {
       />
 
       {state.phase === "done" ? (
-        <ResultsDashboard
-          result={state.result}
+        <SpendingDashboard
+          analysis={state.analysis}
           onReset={() => setState({ phase: "idle" })}
           onSupport={() => setShowSupport(true)}
         />

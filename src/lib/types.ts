@@ -1,3 +1,5 @@
+import type { Category } from "./categorize";
+
 export interface RawTxn {
   date: Date;
   description: string;
@@ -55,4 +57,69 @@ export interface AuditResult {
   dateRange: { from: string; to: string } | null;
   /** Non-fatal notes for the user (e.g. unparseable rows). */
   notes: string[];
+}
+
+/** One transaction in a merchant's history, surfaced to the UI. */
+export interface MerchantTxn {
+  date: string;
+  amount: number;
+}
+
+/** Everything we know about spending at a single merchant. */
+export interface MerchantSummary {
+  id: string;
+  name: string;
+  rawSample: string;
+  category: Category;
+  total: number;
+  count: number;
+  avg: number;
+  min: number;
+  max: number;
+  firstSeen: string;
+  lastSeen: string;
+  /** Days between first and last charge. */
+  spanDays: number;
+  /** A plain-English cadence, e.g. "almost daily", "weekly-ish". */
+  rhythm: string;
+  /** True if this merchant was also flagged as a recurring subscription. */
+  isRecurring: boolean;
+  txns: MerchantTxn[];
+}
+
+export interface CategoryTotal {
+  category: Category;
+  total: number;
+  count: number;
+  /** Share of total spend, 0..100. */
+  pct: number;
+}
+
+export interface MonthlyPoint {
+  /** "2025-03" */
+  month: string;
+  /** "Mar" or "Mar '25" */
+  label: string;
+  total: number;
+}
+
+export interface SpendingOverview {
+  totalSpent: number;
+  txnCount: number;
+  merchantCount: number;
+  dateRange: { from: string; to: string } | null;
+  monthsCovered: number;
+  avgPerMonth: number;
+  categories: CategoryTotal[];
+  /** All merchants, sorted by total spend descending. */
+  merchants: MerchantSummary[];
+  monthly: MonthlyPoint[];
+  topMerchant: MerchantSummary | null;
+  biggestCategory: CategoryTotal | null;
+}
+
+/** The full result of analyzing one statement. */
+export interface Analysis {
+  overview: SpendingOverview;
+  audit: AuditResult;
 }

@@ -120,8 +120,8 @@ export function parseDate(raw: string): Date | null {
   // D/M/Y or M/D/Y
   m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
   if (m) {
-    let a = +m[1];
-    let b = +m[2];
+    const a = +m[1];
+    const b = +m[2];
     let year = +m[3];
     if (year < 100) year += year < 70 ? 2000 : 1900;
     // If first part > 12 it must be a day -> D/M/Y. Otherwise assume M/D/Y (US).
