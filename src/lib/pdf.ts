@@ -398,6 +398,15 @@ export function txnsFromColumns(rows: Row[], opts: ParseOptions): RawTxn[] {
   return txns;
 }
 
+/** Lines that look like transaction rows or the column header — useful for diagnosing a new layout. */
+function pickSampleLines(lines: string[]): string[] {
+  const interesting =
+    /\b(withdrawal|deposit|balance|debit|credit|narration|particulars|description|cheque|chq|value date|txn|transaction|amount)\b|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b|[\d,]+\.\d{2}|(?:rs\.?|₹|inr)\s*\d/i;
+  const hits = lines.filter((l) => l.trim().length > 1 && interesting.test(l));
+  const chosen = hits.length >= 5 ? hits : lines.filter((l) => l.trim().length > 1);
+  return chosen.slice(0, 30);
+}
+
 function finalize(txns: RawTxn[], lines: string[], currency: string | null): PdfParseOutput {
   const totalChars = lines.reduce((s, l) => s + l.length, 0);
   const notes: string[] = [];
@@ -411,7 +420,7 @@ function finalize(txns: RawTxn[], lines: string[], currency: string | null): Pdf
       notes.push(
         "We read the text but couldn't line up the transaction rows in this layout yet. A CSV export will be most accurate. You can also expand the details below and share them so we can support this bank."
       );
-      sampleLines = lines.filter((l) => l.trim().length > 1).slice(0, 18);
+      sampleLines = pickSampleLines(lines);
     }
   } else {
     notes.push(
