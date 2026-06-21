@@ -25,7 +25,19 @@ export function sampleCsv(): string {
     ["SHELL OIL 5747 HOUSTON TX", 52.0, "2025-04-02"],
     ["DELTA AIR 0062317654321", 412.6, "2025-02-19"],
     ["WHOLEFDS MKT 10259", 63.18, "2025-05-08"],
-    ["PAYROLL DEPOSIT ACME CORP", -3200.0, "2025-03-29"], // income, ignored
+  ];
+
+  // Money IN — so the "Received" view has a salary trend + a few sources.
+  // Stored as positive amounts; emitted without the leading "-".
+  const inflows: [string, number, string][] = [
+    ["PAYROLL DEPOSIT ACME CORP", 3200.0, "2025-02-28"],
+    ["PAYROLL DEPOSIT ACME CORP", 3200.0, "2025-03-31"],
+    ["PAYROLL DEPOSIT ACME CORP", 3200.0, "2025-04-30"],
+    ["PAYROLL DEPOSIT ACME CORP", 3350.0, "2025-05-30"], // small raise
+    ["PAYROLL DEPOSIT ACME CORP", 3350.0, "2025-06-30"],
+    ["IRS TREAS 310 TAX REF", 1180.0, "2025-04-17"], // tax refund
+    ["ZELLE FROM SARAH MILLER", 240.0, "2025-05-21"], // split rent from a friend
+    ["VENMO CASHOUT", 65.0, "2025-03-18"],
   ];
 
   const months = [2, 3, 4, 5, 6]; // Feb–Jun 2025
@@ -49,9 +61,13 @@ export function sampleCsv(): string {
     }
   }
 
+  // Purchases are negative (money out)…
   for (const [desc, amt, date] of oneOffs) {
-    const sign = amt < 0 ? "" : "-";
-    rows.push(`${date},"${desc}",${sign}$${Math.abs(amt).toFixed(2)}`);
+    rows.push(`${date},"${desc}",-$${amt.toFixed(2)}`);
+  }
+  // …and credits are positive (money in).
+  for (const [desc, amt, date] of inflows) {
+    rows.push(`${date},"${desc}",$${amt.toFixed(2)}`);
   }
 
   return rows.join("\n");
