@@ -18,35 +18,150 @@ const STATE_CODES = new Set([
   "va","wa","wv","wi","wy",
 ]);
 
+/** Words that are never the actual payee — transaction plumbing and bank codes. */
+const NAME_STOPWORDS = new Set([
+  "upi", "neft", "imps", "rtgs", "ach", "pos", "atm", "emi", "ecs", "nach",
+  "dr", "cr", "ref", "txn", "trn", "id", "no", "rrn", "payment", "pmt", "pay",
+  "paid", "sent", "received", "recd", "rcvd", "money", "added", "transfer",
+  "transferred", "trf", "tfr", "to", "from", "via", "by", "the", "for", "of",
+  "account", "ac", "acct", "bank", "wallet", "recharge", "bill", "billpay",
+  "autopay", "mandate", "purchase", "debit", "credit", "online", "mobile",
+  "app", "fund", "funds", "transaction", "self", "and",
+  // Common Indian bank short/IFSC-prefix codes
+  "hdfc", "icic", "icici", "sbin", "sbi", "axis", "utib", "kotak", "kkbk",
+  "pnb", "punb", "bob", "barb", "yesb", "idfc", "idfb", "indb", "ibkl",
+  "ubin", "cnrb", "canara", "federal", "fdrl", "rbl", "ratn", "indusind",
+  "induslnd", "citi", "hsbc", "scbl", "dbs", "aubl", "bandhan", "okhdfcbank",
+  "okaxis", "okicici", "oksbi", "ybl", "paytm", "apl", "ibl",
+]);
+
+function looksLikeId(t: string): boolean {
+  // Long all-caps/alnum refs, or tokens with several digits.
+  if (/^\d+$/.test(t)) return true;
+  const digits = (t.match(/\d/g) || []).length;
+  return digits >= 4 || (digits > 0 && digits >= t.length / 2);
+}
+
+function titleCaseName(s: string): string {
+  return s
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ")
+    .slice(0, 40)
+    .trim();
+}
+
+/** Last-resort identifier: a UPI VPA local-part or a 10-digit phone. */
+function vpaOrPhone(str: string): string | null {
+  const vpa = str.match(/([a-z0-9][a-z0-9.\-]{1,})@[a-z]{2,}/i);
+  if (vpa && !NAME_STOPWORDS.has(vpa[1].toLowerCase())) return vpa[1];
+  const phone = str.match(/\b(\d{10})\b/);
+  if (phone) return phone[1];
+  return null;
+}
+
+/** Clean a candidate name: drop stopwords/ids, keep the human part. */
+function cleanName(raw: string): string | null {
+  const tokens = raw
+    .replace(/@\S+/g, " ") // drop UPI handles like @okhdfcbank
+    .split(/[^A-Za-z&.]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  const kept: string[] = [];
+  for (const t of tokens) {
+    const lw = t.toLowerCase().replace(/\./g, "");
+    if (!lw) continue;
+    if (NAME_STOPWORDS.has(lw)) continue;
+    if (looksLikeId(t)) continue;
+    if (t.length === 1) continue;
+    kept.push(t);
+    if (kept.length >= 4) break;
+  }
+  if (kept.length === 0) return null;
+  return kept.join(" ");
+}
+
+/** Score a delimited segment on how much it looks like a real payee name. */
+function pickNameSegment(segments: string[]): string | null {
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const seg of segments) {
+    const cand = cleanName(seg);
+    if (!cand) continue;
+    const words = cand.split(/\s+/);
+    let score = words.length;
+    if (cand.includes(" ")) score += 2; // multi-word ≈ a person/company name
+    if (cand.length >= 4) score += 1;
+    if (score > bestScore) {
+      bestScore = score;
+      best = cand;
+    }
+  }
+  return best;
+}
+
+/**
+ * Pull the actual payee name out of transfer-style narrations
+ * (UPI / NEFT / IMPS / "paid to" / "received from"). Returns null otherwise.
+ */
+function extractPayeeName(s: string): string | null {
+  // Explicit verbs: "Paid to Ramesh Kumar", "Received from Jane", "Sent to X"
+  const verb = s.match(
+    /(?:paid to|sent to|payment to|transferred to|transfer to|money sent to|received from|money received from|recd from|rcvd from|to a\/?c of)\s+(.+?)(?:\s+(?:on|ref|upi|txn|id|via|a\/?c|account|dated)\b|[,/|]|$)/i
+  );
+  if (verb) {
+    const cand = cleanName(verb[1]);
+    if (cand) return cand;
+    const id = vpaOrPhone(verb[1]);
+    if (id) return id;
+  }
+
+  // Structured UPI/NEFT/IMPS, usually delimited by "/", "-" or "|".
+  if (/\b(upi|neft|imps|rtgs|ach|p2a|p2m)\b/i.test(s) || s.split("/").length >= 3) {
+    const segs = s.split(/[\/|]|\s-\s|-/);
+    const cand = pickNameSegment(segs);
+    if (cand) return cand;
+    const id = vpaOrPhone(s);
+    if (id) return id;
+  }
+
+  return null;
+}
+
 /** Strip transaction noise and produce a stable grouping key + display name. */
 export function normalizeMerchant(raw: string): { key: string; name: string } {
-  let s = raw.toLowerCase();
+  const cleaned = raw.replace(/\s+/g, " ").trim();
 
-  // Remove URLs, emails, phone numbers.
+  // First, try to surface the real payee from a transfer-style narration.
+  const payee = extractPayeeName(cleaned);
+  if (payee) {
+    const name = titleCaseName(payee);
+    if (name) return { key: name.toLowerCase(), name };
+  }
+
+  // Fallback: token-based cleanup for card/merchant descriptors.
+  let s = cleaned.toLowerCase();
   s = s.replace(/https?:\/\/\S+/g, " ");
   s = s.replace(/\b[\w.-]+@[\w.-]+\b/g, " ");
   s = s.replace(/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g, " ");
-
-  // Remove dates and times embedded in descriptions.
   s = s.replace(/\b\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?\b/g, " ");
   s = s.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, " ");
 
-  // Split into tokens on non-alphanumerics.
   const tokens = s.split(/[^a-z0-9&]+/).filter(Boolean);
 
   const kept: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (!t) continue;
-    // Drop pure numbers and long alphanumeric ids (store #, ref ids).
     if (/^\d+$/.test(t)) continue;
-    if (/\d/.test(t) && t.length >= 4) continue; // mixed id-like token
+    if (/\d/.test(t) && t.length >= 4) continue;
     if (NOISE_TOKENS.has(t)) continue;
-    // Drop trailing state codes when we already have a name.
     if (kept.length >= 1 && STATE_CODES.has(t) && i >= tokens.length - 2) continue;
     if (t.length === 1 && kept.length >= 1) continue;
     kept.push(t);
-    if (kept.length >= 4) break; // first few words carry the brand
+    if (kept.length >= 4) break;
   }
 
   const finalTokens = kept.length ? kept : tokens.slice(0, 2);
