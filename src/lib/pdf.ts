@@ -255,14 +255,14 @@ function parseBlocks(blocks: Block[], base: Base): RawTxn[] {
       if (INFLOW_KW.test(text)) dir = "in";
       else if (OUTFLOW_KW.test(text)) dir = "out";
     }
-    if (dir !== "out") continue;
+    if (!dir) continue; // ambiguous — neither in nor out
 
     const first = block.lines[0].slice(marker.len).trim();
     const candidates = first ? [first, ...block.lines.slice(1)] : block.lines.slice(1);
     const desc = extractDescription(text, candidates);
     if (!desc) continue;
 
-    txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount: Math.abs(picked.value) });
+    txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount: Math.abs(picked.value), direction: dir });
   }
   return txns;
 }
@@ -285,12 +285,12 @@ function parsePerLine(lines: string[], base: Base, dayFirst: boolean): RawTxn[] 
       if (INFLOW_KW.test(line)) dir = "in";
       else if (OUTFLOW_KW.test(line)) dir = "out";
     }
-    if (dir !== "out") continue;
+    if (!dir) continue;
 
     const rest = marker ? line.slice(marker.len) : line;
     const desc = extractDescription(line, [rest]);
     if (!desc) continue;
-    txns.push({ date: lastDate, description: desc, amount: Math.abs(picked.value) });
+    txns.push({ date: lastDate, description: desc, amount: Math.abs(picked.value), direction: dir });
   }
   return txns;
 }
@@ -424,21 +424,23 @@ export function txnsFromColumns(rows: Row[], opts: ParseOptions): RawTxn[] {
       if (best && bd < 160) assigned[best] = v;
     }
 
-    let outflow: number | null = null;
+    let amount: number | null = null;
+    let direction: "out" | "in" | null = null;
     if (cols.debit !== undefined || cols.credit !== undefined) {
-      if (assigned.debit && assigned.debit !== 0) outflow = Math.abs(assigned.debit);
-      else continue; // a credit (deposit) or empty row
+      if (assigned.debit && assigned.debit !== 0) { amount = Math.abs(assigned.debit); direction = "out"; }
+      else if (assigned.credit && assigned.credit !== 0) { amount = Math.abs(assigned.credit); direction = "in"; }
+      else continue; // empty row
     } else if (assigned.amount && assigned.amount !== 0) {
-      if (INFLOW_KW.test(text)) continue;
-      if (assigned.amount < 0 || /\bdr\b/i.test(text) || OUTFLOW_KW.test(text)) outflow = Math.abs(assigned.amount);
+      if (INFLOW_KW.test(text)) { amount = Math.abs(assigned.amount); direction = "in"; }
+      else if (assigned.amount < 0 || /\bdr\b/i.test(text) || OUTFLOW_KW.test(text)) { amount = Math.abs(assigned.amount); direction = "out"; }
       else continue;
     }
-    if (outflow === null) continue;
+    if (amount === null || direction === null) continue;
 
     const desc = columnDescription(row, cols, moneyMinX);
     if (!desc) continue;
 
-    txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount: outflow });
+    txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount, direction });
   }
   return txns;
 }
@@ -516,11 +518,17 @@ export function txnsFromBalances(lines: string[], opts: ParseOptions): RawTxn[] 
     const year = nextYear(c.marker);
     const delta = reconciles(i);
     if (delta === null) continue; // adjacent to a gap / mis-extracted row → skip just this one
-    if (delta >= -0.005) continue; // balance rose → credit, not spending
+    if (Math.abs(delta) < 0.005) continue; // no movement
     if (SELF_RE.test(c.line)) continue;
     const desc = descFromLine(c.line);
     if (!desc) continue;
-    txns.push({ date: new Date(year, c.marker.month - 1, c.marker.day), description: desc, amount: round2(c.stated) });
+    // Balance fell → money out; balance rose → money in.
+    txns.push({
+      date: new Date(year, c.marker.month - 1, c.marker.day),
+      description: desc,
+      amount: round2(c.stated),
+      direction: delta < 0 ? "out" : "in",
+    });
   }
   return txns;
 }

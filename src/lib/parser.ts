@@ -248,10 +248,9 @@ export function parseCsv(text: string, opts: ParseOptions = {}): ParseOutput {
       continue;
     }
 
-    // Outflows only (money spent). Statement debits are negative -> flip to positive.
-    if (amount < 0) {
-      txns.push({ date, description, amount: Math.abs(amount) });
-    }
+    // Debits are negative (money out); credits positive (money in). Keep both.
+    if (amount < 0) txns.push({ date, description, amount: -amount, direction: "out" });
+    else txns.push({ date, description, amount, direction: "in" });
   }
 
   if (txns.length === 0 && skipped > 0) {

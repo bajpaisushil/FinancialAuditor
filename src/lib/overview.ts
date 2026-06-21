@@ -5,6 +5,7 @@ import type {
   MerchantSummary,
   MonthlyPoint,
   RawTxn,
+  ReceivedSummary,
   SpendingOverview,
 } from "./types";
 
@@ -164,5 +165,68 @@ export function buildOverview(txns: RawTxn[], recurringIds: Set<string>): Spendi
     monthly,
     topMerchant: merchants[0] ?? null,
     biggestCategory: categories[0] ?? null,
+  };
+}
+
+/** Summarize money coming in: total, net vs spend, monthly series, and sources. */
+export function buildReceived(inflows: RawTxn[], totalSpent: number): ReceivedSummary {
+  const groups = new Map<string, { name: string; rawSample: string; txns: RawTxn[] }>();
+  for (const t of inflows) {
+    const { key, name } = normalizeMerchant(t.description);
+    if (!key) continue;
+    const g = groups.get(key);
+    if (g) g.txns.push(t);
+    else groups.set(key, { name, rawSample: t.description, txns: [t] });
+  }
+
+  const sources: MerchantSummary[] = [];
+  const monthMap = new Map<string, number>();
+  let total = 0;
+
+  for (const [key, g] of groups) {
+    const sorted = [...g.txns].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const amounts = sorted.map((t) => t.amount);
+    const sum = amounts.reduce((a, b) => a + b, 0);
+    const first = sorted[0].date;
+    const last = sorted[sorted.length - 1].date;
+    const spanDays = Math.round((last.getTime() - first.getTime()) / DAY);
+    sources.push({
+      id: key,
+      name: g.name,
+      rawSample: g.rawSample,
+      category: classify(g.rawSample),
+      total: round2(sum),
+      count: sorted.length,
+      avg: round2(sum / sorted.length),
+      min: round2(Math.min(...amounts)),
+      max: round2(Math.max(...amounts)),
+      firstSeen: iso(first),
+      lastSeen: iso(last),
+      spanDays,
+      rhythm: rhythmLabel(sorted.length, spanDays),
+      isRecurring: false,
+      txns: sorted.map((t) => ({ date: iso(t.date), amount: round2(t.amount) })),
+    });
+    total += sum;
+    for (const t of sorted) {
+      const mk = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, "0")}`;
+      monthMap.set(mk, (monthMap.get(mk) ?? 0) + t.amount);
+    }
+  }
+
+  sources.sort((a, b) => b.total - a.total);
+  const monthly: MonthlyPoint[] = [...monthMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, t]) => {
+      const [y, m] = month.split("-");
+      return { month, label: `${MONTHS[+m - 1]} '${y.slice(2)}`, total: round2(t) };
+    });
+
+  return {
+    total: round2(total),
+    count: inflows.length,
+    net: round2(total - totalSpent),
+    monthly,
+    sources,
   };
 }

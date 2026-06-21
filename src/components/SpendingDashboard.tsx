@@ -10,7 +10,7 @@ import MerchantCard from "./MerchantCard";
 import SubscriptionCard from "./SubscriptionCard";
 import { BoltIcon, HeartIcon, RepeatIcon, TrendUpIcon, UploadIcon } from "./icons";
 
-type Tab = "overview" | "subscriptions" | "merchants";
+type Tab = "overview" | "received" | "subscriptions" | "merchants";
 type AiState = { status: "off" | "loading" | "on" | "error"; progress: number; msg: string };
 
 export default function SpendingDashboard({
@@ -34,7 +34,7 @@ export default function SpendingDashboard({
     setAi({ status: "off", progress: 0, msg: "" });
   }
 
-  const { overview, audit } = view;
+  const { overview, audit, received } = view;
   const [tab, setTab] = useState<Tab>("overview");
 
   const toggleAi = useCallback(async () => {
@@ -70,8 +70,9 @@ export default function SpendingDashboard({
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
+    { key: "received", label: "Received", count: received.count },
     { key: "subscriptions", label: "Subscriptions", count: audit.subscriptions.length },
-    { key: "merchants", label: "All merchants", count: overview.merchantCount },
+    { key: "merchants", label: "Merchants", count: overview.merchantCount },
   ];
 
   return (
@@ -105,9 +106,24 @@ export default function SpendingDashboard({
 
       {/* Headline numbers */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard tone="accent" value={money(overview.totalSpent, { cents: false })} label="Total spent" />
-        <StatCard tone="text" value={money(overview.avgPerMonth, { cents: false })} label="Avg / month" />
-        <StatCard tone="text" value={String(overview.merchantCount)} label="Merchants" />
+        <StatCard
+          tone="danger"
+          value={money(overview.totalSpent, { cents: false })}
+          label="Total spent"
+          sub={`${money(overview.avgPerMonth, { cents: false })}/mo · ${overview.merchantCount} merchants`}
+        />
+        <StatCard
+          tone="accent"
+          value={money(received.total, { cents: false })}
+          label="Total received"
+          sub={received.count ? `${received.count} credits` : "none found"}
+        />
+        <StatCard
+          tone={received.net >= 0 ? "accent" : "danger"}
+          value={`${received.net >= 0 ? "+" : "−"}${money(Math.abs(received.net), { cents: false })}`}
+          label="Net (in − out)"
+          sub={received.net >= 0 ? "more in than out" : "more out than in"}
+        />
         <StatCard
           tone="warn"
           value={money(audit.totalAnnual, { cents: false })}
@@ -178,6 +194,7 @@ export default function SpendingDashboard({
       {tab === "overview" && (
         <OverviewTab analysis={view} onSeeMerchants={() => setTab("merchants")} />
       )}
+      {tab === "received" && <ReceivedTab analysis={view} />}
       {tab === "subscriptions" && (
         <SubscriptionsTab analysis={view} onSupport={onSupport} />
       )}
@@ -233,6 +250,51 @@ function OverviewTab({
         <div className="space-y-2.5">
           {topMerchants.map((m) => (
             <MerchantCard key={m.id} merchant={m} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReceivedTab({ analysis }: { analysis: Analysis }) {
+  const { received, overview } = analysis;
+
+  if (received.count === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-surface p-10 text-center">
+        <p className="font-medium">No incoming money found.</p>
+        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+          This statement only shows money going out, or its credits weren&apos;t recognized.
+          Salary, deposits, refunds and transfers received would show up here.
+        </p>
+      </div>
+    );
+  }
+
+  const topSources = received.sources.slice(0, 8);
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-accent/25 bg-gradient-to-br from-accent-dim/40 to-transparent p-5 text-sm leading-relaxed">
+        You received <span className="font-semibold text-accent">{money(received.total)}</span> and spent{" "}
+        <span className="font-semibold">{money(overview.totalSpent)}</span> — a net of{" "}
+        <span className={`font-semibold ${received.net >= 0 ? "text-accent" : "text-danger"}`}>
+          {received.net >= 0 ? "+" : "−"}
+          {money(Math.abs(received.net))}
+        </span>
+        {received.net >= 0 ? " in your favour." : " (you spent more than you took in)."}
+      </div>
+
+      <MonthlyTrend monthly={received.monthly} title="Received by month" />
+
+      <div>
+        <div className="mb-2.5 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Top sources</h3>
+          <span className="text-xs text-faint">who money came from</span>
+        </div>
+        <div className="space-y-2.5">
+          {topSources.map((s) => (
+            <MerchantCard key={s.id} merchant={s} />
           ))}
         </div>
       </div>

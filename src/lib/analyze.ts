@@ -1,15 +1,20 @@
 import { analyze } from "./detect";
-import { buildOverview } from "./overview";
+import { buildOverview, buildReceived } from "./overview";
 import type { Analysis, RawTxn } from "./types";
 
 /**
- * Run the full pipeline on parsed transactions: subscription detection plus
- * the whole-statement spending overview. Both group merchants the same way,
- * so subscriptions line up with their merchant summaries.
+ * Run the full pipeline: subscription detection + spending overview on the
+ * money OUT, plus a "received" summary from the money IN. Spending analysis
+ * only ever sees outflows, so received transactions never inflate spend.
  */
 export function runAnalysis(txns: RawTxn[], notes: string[] = []): Analysis {
-  const audit = analyze(txns, notes);
+  const outflows = txns.filter((t) => t.direction === "out");
+  const inflows = txns.filter((t) => t.direction === "in");
+
+  const audit = analyze(outflows, notes);
   const recurringIds = new Set(audit.subscriptions.map((s) => s.id));
-  const overview = buildOverview(txns, recurringIds);
-  return { overview, audit };
+  const overview = buildOverview(outflows, recurringIds);
+  const received = buildReceived(inflows, overview.totalSpent);
+
+  return { overview, audit, received };
 }

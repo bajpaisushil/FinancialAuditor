@@ -3,8 +3,10 @@ import type { Category } from "./categorize";
 export interface RawTxn {
   date: Date;
   description: string;
-  /** Positive number = money spent (outflow). */
+  /** Always positive. Direction says whether it's money out or in. */
   amount: number;
+  /** "out" = spent, "in" = received. */
+  direction: "out" | "in";
 }
 
 export type Cadence =
@@ -118,8 +120,20 @@ export interface SpendingOverview {
   biggestCategory: CategoryTotal | null;
 }
 
+/** Money coming in (deposits, salary, transfers received, refunds). */
+export interface ReceivedSummary {
+  total: number;
+  count: number;
+  /** received − spent. Positive = you took in more than you spent. */
+  net: number;
+  monthly: MonthlyPoint[];
+  /** Who money came from, sorted by total descending. */
+  sources: MerchantSummary[];
+}
+
 /** The full result of analyzing one statement. */
 export interface Analysis {
   overview: SpendingOverview;
   audit: AuditResult;
+  received: ReceivedSummary;
 }

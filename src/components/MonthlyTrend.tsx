@@ -3,7 +3,13 @@
 import type { MonthlyPoint } from "@/lib/types";
 import { money } from "@/lib/format";
 
-export default function MonthlyTrend({ monthly }: { monthly: MonthlyPoint[] }) {
+export default function MonthlyTrend({
+  monthly,
+  title = "Spending by month",
+}: {
+  monthly: MonthlyPoint[];
+  title?: string;
+}) {
   if (monthly.length === 0) return null;
   const max = Math.max(...monthly.map((m) => m.total), 1);
   const avg = monthly.reduce((s, m) => s + m.total, 0) / monthly.length;
@@ -11,7 +17,7 @@ export default function MonthlyTrend({ monthly }: { monthly: MonthlyPoint[] }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Spending by month</h3>
+        <h3 className="text-sm font-semibold">{title}</h3>
         <span className="text-xs text-faint tabular">avg {money(avg, { cents: false })}/mo</span>
       </div>
 
