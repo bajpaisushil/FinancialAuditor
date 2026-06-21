@@ -34,7 +34,18 @@ export default function SpendingDashboard({
     setAi({ status: "off", progress: 0, msg: "" });
   }
 
-  const { overview, audit, received } = view;
+  const { overview, audit } = view;
+  // `received` was added after the first release. Guard against an analysis
+  // object that predates the field (e.g. one held in state across a hot
+  // reload, or any future producer that forgets it) so we degrade to an empty
+  // "received" view instead of white-screening.
+  const received = view.received ?? {
+    total: 0,
+    count: 0,
+    net: -overview.totalSpent,
+    monthly: [],
+    sources: [],
+  };
   const [tab, setTab] = useState<Tab>("overview");
 
   const toggleAi = useCallback(async () => {
