@@ -33,7 +33,7 @@ export function sampleCsv(): string {
     if (cadence >= 28) {
       months.forEach((m, idx) => {
         const amt = hikeTo && idx >= 3 ? hikeTo : base;
-        rows.push(`2025-${pad(m)}-${pad(dom)},"${desc}",-${amt.toFixed(2)}`);
+        rows.push(`2025-${pad(m)}-${pad(dom)},"${desc}",-$${amt.toFixed(2)}`);
       });
     } else {
       // weekly/biweekly: sprinkle across the window with a little jitter
@@ -43,7 +43,7 @@ export function sampleCsv(): string {
         const dd = ((day - 1) % 30) + 1;
         const jitter = cadence < 10 ? (i % 3) - 1 : 0;
         const amt = base + jitter * 2.3;
-        if (m <= 6) rows.push(`2025-${pad(m)}-${pad(dd)},"${desc}",-${amt.toFixed(2)}`);
+        if (m <= 6) rows.push(`2025-${pad(m)}-${pad(dd)},"${desc}",-$${amt.toFixed(2)}`);
         day += cadence;
       }
     }
@@ -51,7 +51,7 @@ export function sampleCsv(): string {
 
   for (const [desc, amt, date] of oneOffs) {
     const sign = amt < 0 ? "" : "-";
-    rows.push(`${date},"${desc}",${sign}${Math.abs(amt).toFixed(2)}`);
+    rows.push(`${date},"${desc}",${sign}$${Math.abs(amt).toFixed(2)}`);
   }
 
   return rows.join("\n");

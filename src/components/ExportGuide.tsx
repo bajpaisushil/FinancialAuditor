@@ -119,9 +119,10 @@ export default function ExportGuide() {
         <div className="mx-auto mt-8 flex max-w-2xl items-center justify-center gap-2.5 rounded-xl border border-accent/25 bg-accent-dim/30 px-4 py-3 text-sm">
           <EyeOffIcon className="h-5 w-5 shrink-0 text-accent" />
           <span className="text-pretty text-muted">
-            <span className="font-medium text-text">Only got a PDF or Excel?</span>{" "}
-            Open it in any spreadsheet app and &ldquo;Save As / Export CSV&rdquo; — that file
-            works here too. It still never leaves your device.
+            <span className="font-medium text-text">CSV or PDF both work.</span>{" "}
+            Drop a PDF statement and we read the text right in your browser. CSV is the
+            most accurate; for an Excel file, &ldquo;Save As / Export CSV&rdquo; first. Either
+            way, it never leaves your device.
           </span>
         </div>
       </div>

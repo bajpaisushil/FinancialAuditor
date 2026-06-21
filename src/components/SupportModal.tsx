@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CoffeeIcon, HeartIcon, XIcon } from "./icons";
-import { money } from "@/lib/format";
+import { getCurrency, money } from "@/lib/format";
 
 /**
  * Everything is free. This is a pay-what-you-want ask, framed around the
@@ -12,11 +12,29 @@ import { money } from "@/lib/format";
  */
 const DONATE_URL = "https://www.buymeacoffee.com/";
 
-const TIERS = [
-  { amount: 3, label: "A coffee", note: "Keeps the lights on" },
-  { amount: 9, label: "Nice one", note: "Most popular", highlight: true },
-  { amount: 25, label: "Legend", note: "You found way more than this" },
-];
+const NOTES = ["Keeps the lights on", "Most popular", "You found way more"];
+const LABELS = ["A coffee", "Nice one", "Legend"];
+
+/** Sensible round donation amounts per currency (small / medium / large). */
+const TIER_AMOUNTS: Record<string, [number, number, number]> = {
+  USD: [3, 9, 25], EUR: [3, 8, 20], GBP: [3, 8, 20], INR: [99, 299, 799],
+  AUD: [5, 12, 30], CAD: [5, 12, 30], NZD: [5, 12, 30], SGD: [4, 12, 30],
+  JPY: [300, 900, 2500], KRW: [4000, 9000, 25000], CNY: [20, 60, 150],
+  BRL: [9, 29, 79], ZAR: [50, 150, 400], AED: [12, 35, 90], SAR: [12, 35, 90],
+  MXN: [60, 180, 450], TRY: [90, 290, 790], IDR: [40000, 120000, 350000],
+  MYR: [12, 35, 90], THB: [99, 290, 790], PHP: [150, 450, 1200],
+  NGN: [2000, 6000, 16000], PKR: [500, 1500, 4000], CHF: [3, 8, 20],
+};
+
+function tiersFor(currency: string) {
+  const amounts = TIER_AMOUNTS[currency] ?? TIER_AMOUNTS.USD;
+  return amounts.map((amount, i) => ({
+    amount,
+    label: LABELS[i],
+    note: NOTES[i],
+    highlight: i === 1,
+  }));
+}
 
 export default function SupportModal({
   open,
@@ -27,7 +45,10 @@ export default function SupportModal({
   onClose: () => void;
   annualSavings: number;
 }) {
-  const [picked, setPicked] = useState<number | null>(9);
+  const currency = getCurrency();
+  const tiers = tiersFor(currency);
+  const [pickedIdx, setPickedIdx] = useState<number | null>(1);
+  const picked = pickedIdx === null ? null : tiers[pickedIdx].amount;
 
   useEffect(() => {
     if (!open) return;
@@ -85,17 +106,17 @@ export default function SupportModal({
 
         <div className="p-6">
           <div className="grid grid-cols-3 gap-2.5">
-            {TIERS.map((t) => (
+            {tiers.map((t, i) => (
               <button
-                key={t.amount}
-                onClick={() => setPicked(t.amount)}
+                key={i}
+                onClick={() => setPickedIdx(i)}
                 className={`flex flex-col items-center rounded-xl border px-2 py-3 text-center transition ${
-                  picked === t.amount
+                  pickedIdx === i
                     ? "border-accent bg-accent-dim/60"
                     : "border-border bg-surface-2 hover:border-accent/40"
                 }`}
               >
-                <span className="text-lg font-semibold tabular">${t.amount}</span>
+                <span className="text-lg font-semibold tabular">{money(t.amount, { cents: false })}</span>
                 <span className="mt-0.5 text-xs font-medium">{t.label}</span>
                 <span className="mt-0.5 text-[10px] text-faint">{t.note}</span>
               </button>
@@ -109,7 +130,7 @@ export default function SupportModal({
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-bg transition hover:bg-accent-deep"
           >
             <CoffeeIcon className="h-4.5 w-4.5" />
-            {picked ? `Chip in $${picked}` : "Chip in"}
+            {picked ? `Chip in ${money(picked, { cents: false })}` : "Chip in"}
           </a>
 
           <button

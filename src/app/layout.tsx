@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vaultline — Find forgotten subscriptions without giving up your bank login",
+  title: "AuditKosh — Find forgotten subscriptions without giving up your bank login",
   description:
     "Drop your bank statement CSV and find recurring charges, sneaky price hikes, and forgotten subscriptions. 100% in your browser. No accounts, no Plaid, no server. Turn your Wi-Fi off and watch it still work.",
   keywords: [

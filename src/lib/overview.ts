@@ -11,7 +11,12 @@ import type {
 const DAY = 24 * 60 * 60 * 1000;
 
 function iso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  // Local calendar date — see note in detect.ts; avoids an off-by-one in
+  // timezones ahead of UTC.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 function round2(n: number): number {
   return Math.round(n * 100) / 100;

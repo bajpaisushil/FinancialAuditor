@@ -1,4 +1,5 @@
 import type { RawTxn } from "./types";
+import { detectCurrencyFromText } from "./locale";
 
 /** Split a single CSV line, honoring quoted fields and escaped quotes. */
 function splitCsvLine(line: string, delimiter: string): string[] {
@@ -104,8 +105,12 @@ export function parseAmount(raw: string): number | null {
   return negative ? -n : n;
 }
 
-/** Parse many common date formats into a Date (or null). */
-export function parseDate(raw: string): Date | null {
+/**
+ * Parse many common date formats into a Date (or null).
+ * `dayFirst` decides the DD/MM vs MM/DD ambiguity when neither part exceeds 12
+ * (true for most of the world, false for the US).
+ */
+export function parseDate(raw: string, dayFirst = true): Date | null {
   if (!raw) return null;
   const s = raw.trim();
   if (!s) return null;
@@ -124,9 +129,15 @@ export function parseDate(raw: string): Date | null {
     const b = +m[2];
     let year = +m[3];
     if (year < 100) year += year < 70 ? 2000 : 1900;
-    // If first part > 12 it must be a day -> D/M/Y. Otherwise assume M/D/Y (US).
+    // Unambiguous if one part is > 12; otherwise fall back to the locale's order.
     let month: number, day: number;
     if (a > 12) {
+      day = a;
+      month = b;
+    } else if (b > 12) {
+      month = a;
+      day = b;
+    } else if (dayFirst) {
       day = a;
       month = b;
     } else {
@@ -150,13 +161,22 @@ function isValid(d: Date): boolean {
 export interface ParseOutput {
   txns: RawTxn[];
   notes: string[];
+  /** Currency code sniffed from the file, or null if none was obvious. */
+  currency: string | null;
+}
+
+export interface ParseOptions {
+  /** Read ambiguous dates as DD/MM (true) vs MM/DD (false). */
+  dayFirst?: boolean;
 }
 
 /**
  * Parse raw CSV text into normalized transactions.
  * All amounts are returned as POSITIVE = money spent (outflow).
  */
-export function parseCsv(text: string): ParseOutput {
+export function parseCsv(text: string, opts: ParseOptions = {}): ParseOutput {
+  const dayFirst = opts.dayFirst ?? true;
+  const currency = detectCurrencyFromText(text);
   const notes: string[] = [];
   // Normalize newlines, drop a UTF-8 BOM, drop fully empty lines.
   const lines = text
@@ -165,7 +185,7 @@ export function parseCsv(text: string): ParseOutput {
     .filter((l) => l.trim().length > 0);
 
   if (lines.length < 2) {
-    return { txns: [], notes: ["File looks empty or has no data rows."] };
+    return { txns: [], notes: ["File looks empty or has no data rows."], currency };
   }
 
   const delimiter = detectDelimiter(lines.slice(0, 5).join("\n"));
@@ -197,7 +217,7 @@ export function parseCsv(text: string): ParseOutput {
     const cells = splitCsvLine(lines[r], delimiter);
     if (cells.length < 2) continue;
 
-    const date = parseDate(cells[dIdx] ?? "");
+    const date = parseDate(cells[dIdx] ?? "", dayFirst);
     const description = (cells[nIdx] ?? "").trim();
 
     let amount: number | null = null;
@@ -241,7 +261,7 @@ export function parseCsv(text: string): ParseOutput {
     notes.push(`${skipped} row${skipped === 1 ? "" : "s"} couldn't be read and were skipped.`);
   }
 
-  return { txns, notes };
+  return { txns, notes, currency };
 }
 
 /** Pick the column with the longest average text — likely the description. */

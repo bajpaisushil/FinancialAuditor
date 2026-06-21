@@ -112,7 +112,12 @@ function detectHike(charges: { date: string; amount: number }[]): PriceHike | nu
 }
 
 function iso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  // Format the LOCAL calendar date — toISOString() would shift a day backward
+  // in timezones ahead of UTC (e.g. IST), corrupting every date we show.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** Full audit pipeline: group, score recurrence, detect hikes, total up. */

@@ -1,5 +1,6 @@
 import Auditor from "@/components/Auditor";
 import ExportGuide from "@/components/ExportGuide";
+import Logo from "@/components/Logo";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -19,10 +20,8 @@ export default function Home() {
       <header className="sticky top-0 z-30 border-b border-border-soft/60 bg-bg/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-bg">
-              <ShieldIcon className="h-4.5 w-4.5" />
-            </div>
-            <span className="font-semibold tracking-tight">Vaultline</span>
+            <Logo className="h-7 w-7" />
+            <span className="font-semibold tracking-tight">AuditKosh</span>
           </div>
           <nav className="hidden items-center gap-6 text-sm text-muted sm:flex">
             <a href="#how" className="transition hover:text-text">How it works</a>
@@ -96,7 +95,7 @@ export default function Home() {
           <SectionTitle
             kicker="The trust problem"
             title="Other apps fix your money by taking your bank login."
-            sub="Rocket Money, Mint and the rest route your real credentials through Plaid, then keep a copy of every transaction you ever make. Vaultline takes a different bet: the safest data is the data we never receive."
+            sub="Rocket Money, Mint and the rest route your real credentials through Plaid, then keep a copy of every transaction you ever make. AuditKosh takes a different bet: the safest data is the data we never receive."
           />
 
           <div className="mt-12 grid gap-4 md:grid-cols-2">
@@ -112,7 +111,7 @@ export default function Home() {
             />
             <CompareCard
               tone="good"
-              title="The Vaultline way"
+              title="The AuditKosh way"
               points={[
                 "You export a CSV — a file you already own",
                 "It's parsed in your browser tab and never uploaded",
@@ -210,7 +209,7 @@ export default function Home() {
               No paywall. Just a tip jar.
             </h2>
             <p className="mx-auto mt-3 max-w-md text-pretty text-muted">
-              Vaultline is free and always will be — there&apos;s no server to bill you
+              AuditKosh is free and always will be — there&apos;s no server to bill you
               from. If it just found you a few hundred dollars of forgotten charges,
               a coffee back keeps it alive and ad-free.
             </p>
@@ -238,7 +237,7 @@ export default function Home() {
             />
             <Faq
               q="What file do I give it?"
-              a="A CSV export from your bank or credit card — almost every bank offers 'Download / Export transactions (CSV)'. We auto-detect the date, description and amount columns across most formats."
+              a="A CSV or PDF statement from your bank, card or wallet. CSV is the most accurate (we auto-detect the date, description and amount columns), but you can also drop a PDF — we read its text right in your browser. Scanned/image-only PDFs won't work; use a CSV in that case."
             />
             <Faq
               q="Does it store anything between visits?"
@@ -260,10 +259,8 @@ export default function Home() {
       <footer className="border-t border-border-soft py-10">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 text-sm text-faint sm:flex-row">
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-accent/90 text-bg">
-              <ShieldIcon className="h-4 w-4" />
-            </div>
-            <span className="font-medium text-muted">Vaultline</span>
+            <Logo className="h-6 w-6" />
+            <span className="font-medium text-muted">AuditKosh</span>
             <span>· your statement never left this device</span>
           </div>
           <div className="flex items-center gap-1.5">
