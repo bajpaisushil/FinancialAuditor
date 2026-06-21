@@ -85,6 +85,14 @@ function clampYear(year: number, base: Base): number {
   return Math.max(base.minYear, Math.min(base.maxYear, year));
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function markerSortKey(m: Marker, base: Base): number {
+  return (m.year ?? base.year) * 10000 + m.month * 100 + m.day;
+}
+
 /** Walk markers in document order (newest→oldest) and infer the year for year-less dates. */
 function makeYearWalker(base: Base): (m: Marker) => number {
   let currentYear = base.year;
@@ -444,6 +452,78 @@ function pickSampleLines(lines: string[]): string[] {
   return chosen.slice(0, 30);
 }
 
+// ───────── Running-balance text parser (bank tables, when columns can't be aligned) ─────────
+
+const DATE_FIND_RE =
+  /(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})|(\d{1,2}\s[A-Za-z]{3,9}\s\d{2,4})/;
+
+function descFromLine(line: string): string | null {
+  let s = line
+    .replace(/^\s*\d{1,4}\s+/, " ") // leading serial number
+    .replace(/\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b/g, " ") // dates
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " "); // times
+  s = stripAmounts(s);
+  return extractDescription(s, [s]);
+}
+
+/**
+ * Parse a statement using the running balance: each row's last two numbers are
+ * (transaction amount, balance), and the row is a debit when the balance fell
+ * vs the previous transaction, a credit when it rose. Works on plain text with
+ * no column positions, and self-validates against the stated amounts so it
+ * never misfires on statements that lack a running balance (e.g. Paytm).
+ */
+export function txnsFromBalances(lines: string[], opts: ParseOptions): RawTxn[] {
+  const dayFirst = opts.dayFirst ?? true;
+  const refYear = opts.referenceYear ?? new Date().getFullYear();
+  const base = detectBase(lines.slice(0, 60).join(" "), refYear);
+
+  interface Cand { marker: Marker; balance: number; stated: number; line: string }
+  const cands: Cand[] = [];
+  for (const line of lines) {
+    const dm = line.match(DATE_FIND_RE);
+    if (!dm) continue;
+    const marker = parseDateMarker(dm[0], dayFirst);
+    if (!marker) continue;
+    const amts = scanAmounts(line);
+    if (amts.length < 2) continue;
+    cands.push({ marker, balance: amts[amts.length - 1].value, stated: amts[amts.length - 2].value, line });
+  }
+  if (cands.length < 3) return [];
+
+  const descending = markerSortKey(cands[0].marker, base) >= markerSortKey(cands[cands.length - 1].marker, base);
+  const prevOf = (i: number) => (descending ? cands[i + 1] : cands[i - 1]);
+
+  // Validate: do balance deltas reconcile with the stated amounts? If not, this
+  // isn't a running-balance statement and we bail (so other parsers win).
+  let total = 0;
+  let ok = 0;
+  for (let i = 0; i < cands.length; i++) {
+    const prev = prevOf(i);
+    if (!prev) continue;
+    total++;
+    const delta = Math.abs(cands[i].balance - prev.balance);
+    if (Math.abs(delta - cands[i].stated) <= Math.max(1, cands[i].stated * 0.02)) ok++;
+  }
+  if (total === 0 || ok / total < 0.6) return [];
+
+  const nextYear = makeYearWalker(base);
+  const txns: RawTxn[] = [];
+  for (let i = 0; i < cands.length; i++) {
+    const c = cands[i];
+    const year = nextYear(c.marker);
+    const prev = prevOf(i);
+    if (!prev) continue;
+    const delta = c.balance - prev.balance;
+    if (delta >= -0.005) continue; // credit / no movement → not spending
+    if (SELF_RE.test(c.line)) continue;
+    const desc = descFromLine(c.line);
+    if (!desc) continue;
+    txns.push({ date: new Date(year, c.marker.month - 1, c.marker.day), description: desc, amount: round2(Math.abs(delta)) });
+  }
+  return txns;
+}
+
 function finalize(txns: RawTxn[], lines: string[], currency: string | null): PdfParseOutput {
   const totalChars = lines.reduce((s, l) => s + l.length, 0);
   const notes: string[] = [];
@@ -559,10 +639,15 @@ export async function parsePdf(
   const lines = allRows.map(rowToText).filter(Boolean);
   const currency = detectCurrencyFromText(lines.join("\n"));
 
-  // Run both strategies; use whichever recognizes more transactions.
-  const columnTxns = txnsFromColumns(allRows, opts);
-  const lineTxns = txnsFromLines(lines, opts);
-  const txns = columnTxns.length > lineTxns.length ? columnTxns : lineTxns;
+  // Run every strategy and keep whichever recognizes the most transactions:
+  // column-aware (positional tables), running-balance (text tables), and
+  // line/block (wallet passbooks like Paytm).
+  const candidates = [
+    txnsFromColumns(allRows, opts),
+    txnsFromBalances(lines, opts),
+    txnsFromLines(lines, opts),
+  ];
+  const txns = candidates.reduce((best, t) => (t.length > best.length ? t : best), [] as RawTxn[]);
 
   if (txns.length === 0 && lines.length > 0 && process.env.NODE_ENV !== "production") {
     console.warn("[pdf] No transactions parsed. First lines extracted:\n" + lines.slice(0, 50).join("\n"));
