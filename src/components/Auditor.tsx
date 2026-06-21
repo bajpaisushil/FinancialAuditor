@@ -14,6 +14,7 @@ import SupportModal from "./SupportModal";
 import OfflineBadge from "./OfflineBadge";
 import OfflineReadyPill from "./OfflineReadyPill";
 import SmartCategoriesPrep from "./SmartCategoriesPrep";
+import InstallButton from "./InstallButton";
 import { BoltIcon, FileIcon, LockIcon, UploadIcon } from "./icons";
 
 type State =
@@ -309,6 +310,8 @@ export default function Auditor() {
               Try it with sample data →
             </button>
           </div>
+
+          {state.phase !== "working" && <InstallButton />}
         </div>
       )}
     </div>
