@@ -3,20 +3,46 @@
 import { useEffect } from "react";
 
 /**
- * Registers the offline service worker (production builds only). Once it's
- * installed and has precached the app, everything — including the in-browser
- * PDF engine — works with the network fully disconnected.
+ * Registers the offline service worker (production only) and, once it's ready,
+ * warms the lazy PDF engine + worker into the cache while we're online. Those
+ * are only fetched when a PDF is dropped, so without warming they'd never be
+ * cached and a PDF parse would fail the moment the network is off — even though
+ * the rest of the app works offline.
  */
 export default function ServiceWorker() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-    const register = () => navigator.serviceWorker.register("/sw.js").catch(() => {});
-    if (document.readyState === "complete") register();
-    else {
-      window.addEventListener("load", register, { once: true });
-      return () => window.removeEventListener("load", register);
+
+    const warm = () => {
+      // Same dynamic import specifier as lib/pdf.ts → same chunk, so this
+      // caches the exact chunk a later parse will request.
+      import("pdfjs-dist").catch(() => {});
+      fetch("/pdf.worker.min.mjs").catch(() => {});
+    };
+
+    const register = async () => {
+      try {
+        await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.ready;
+        if (typeof window.requestIdleCallback === "function") {
+          window.requestIdleCallback(warm, { timeout: 5000 });
+        } else {
+          window.setTimeout(warm, 3000);
+        }
+      } catch {
+        /* SW unsupported or blocked — the app still works online. */
+      }
+    };
+
+    if (document.readyState === "complete") {
+      register();
+    } else {
+      const onLoad = () => register();
+      window.addEventListener("load", onLoad, { once: true });
+      return () => window.removeEventListener("load", onLoad);
     }
   }, []);
+
   return null;
 }
