@@ -10,6 +10,25 @@ import type {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** Roll per-merchant categories up into ranked category totals (shared by the AI re-categorizer). */
+export function aggregateCategories(merchants: MerchantSummary[], totalSpent: number): CategoryTotal[] {
+  const map = new Map<Category, { total: number; count: number }>();
+  for (const m of merchants) {
+    const ct = map.get(m.category) ?? { total: 0, count: 0 };
+    ct.total += m.total;
+    ct.count += m.count;
+    map.set(m.category, ct);
+  }
+  return [...map.entries()]
+    .map(([category, v]) => ({
+      category,
+      total: Math.round(v.total * 100) / 100,
+      count: v.count,
+      pct: totalSpent ? Math.round((v.total / totalSpent) * 10000) / 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+}
+
 function iso(d: Date): string {
   // Local calendar date — see note in detect.ts; avoids an off-by-one in
   // timezones ahead of UTC.
@@ -57,7 +76,6 @@ export function buildOverview(txns: RawTxn[], recurringIds: Set<string>): Spendi
   }
 
   const merchants: MerchantSummary[] = [];
-  const catTotals = new Map<Category, { total: number; count: number }>();
   const monthMap = new Map<string, number>();
   let totalSpent = 0;
 
@@ -104,10 +122,6 @@ export function buildOverview(txns: RawTxn[], recurringIds: Set<string>): Spendi
     });
 
     totalSpent += total;
-    const ct = catTotals.get(category) ?? { total: 0, count: 0 };
-    ct.total += total;
-    ct.count += count;
-    catTotals.set(category, ct);
 
     for (const t of sorted) {
       const mk = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, "0")}`;
@@ -117,14 +131,7 @@ export function buildOverview(txns: RawTxn[], recurringIds: Set<string>): Spendi
 
   merchants.sort((a, b) => b.total - a.total);
 
-  const categories: CategoryTotal[] = [...catTotals.entries()]
-    .map(([category, v]) => ({
-      category,
-      total: round2(v.total),
-      count: v.count,
-      pct: totalSpent ? round2((v.total / totalSpent) * 100) : 0,
-    }))
-    .sort((a, b) => b.total - a.total);
+  const categories = aggregateCategories(merchants, round2(totalSpent));
 
   const monthly: MonthlyPoint[] = [...monthMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))

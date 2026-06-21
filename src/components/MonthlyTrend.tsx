@@ -15,21 +15,32 @@ export default function MonthlyTrend({ monthly }: { monthly: MonthlyPoint[] }) {
         <span className="text-xs text-faint tabular">avg {money(avg, { cents: false })}/mo</span>
       </div>
 
-      <div className="mt-5 flex h-40 items-end gap-2">
+      {/* Bars — each column is full-height so the % bar height has a definite parent. */}
+      <div className="mt-5 flex h-40 items-end gap-1.5">
         {monthly.map((m) => {
-          const h = Math.max(4, (m.total / max) * 100);
+          const h = max > 0 ? Math.max(3, Math.round((m.total / max) * 100)) : 0;
           return (
-            <div key={m.month} className="group flex flex-1 flex-col items-center justify-end gap-2">
-              <span className="text-[10px] font-medium text-muted opacity-0 transition group-hover:opacity-100 tabular">
-                {money(m.total, { cents: false })}
-              </span>
-              <div className="relative flex w-full justify-center" style={{ height: `${h}%` }}>
-                <div className="w-full max-w-10 rounded-t-md bg-gradient-to-t from-accent-deep/40 to-accent transition group-hover:from-accent-deep/60" />
-              </div>
-              <span className="text-[10px] text-faint">{m.label}</span>
+            <div
+              key={m.month}
+              title={`${m.label}: ${money(m.total, { cents: false })}`}
+              className="group flex h-full flex-1 items-end justify-center"
+            >
+              <div
+                className="w-full max-w-10 rounded-t-md bg-gradient-to-t from-accent-deep/50 to-accent transition group-hover:to-accent group-hover:from-accent-deep"
+                style={{ height: `${h}%` }}
+              />
             </div>
           );
         })}
+      </div>
+
+      {/* Month labels, aligned to the bars above. */}
+      <div className="mt-1.5 flex gap-1.5">
+        {monthly.map((m) => (
+          <div key={m.month} className="flex-1 truncate text-center text-[10px] text-faint">
+            {m.label}
+          </div>
+        ))}
       </div>
     </div>
   );

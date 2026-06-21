@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Analysis } from "@/lib/types";
 import { CATEGORY_META, type Category } from "@/lib/categorize";
 import { money } from "@/lib/format";
@@ -8,9 +8,10 @@ import CategoryBreakdown from "./CategoryBreakdown";
 import MonthlyTrend from "./MonthlyTrend";
 import MerchantCard from "./MerchantCard";
 import SubscriptionCard from "./SubscriptionCard";
-import { HeartIcon, RepeatIcon, TrendUpIcon, UploadIcon } from "./icons";
+import { BoltIcon, HeartIcon, RepeatIcon, TrendUpIcon, UploadIcon } from "./icons";
 
 type Tab = "overview" | "subscriptions" | "merchants";
+type AiState = { status: "off" | "loading" | "on" | "error"; progress: number; msg: string };
 
 export default function SpendingDashboard({
   analysis,
@@ -21,8 +22,44 @@ export default function SpendingDashboard({
   onReset: () => void;
   onSupport: () => void;
 }) {
-  const { overview, audit } = analysis;
+  // `view` is what we render — either the instant keyword analysis or the
+  // AI-enhanced one. Reset (during render, per React docs) whenever a new
+  // statement is analyzed.
+  const [view, setView] = useState<Analysis>(analysis);
+  const [ai, setAi] = useState<AiState>({ status: "off", progress: 0, msg: "" });
+  const [seen, setSeen] = useState<Analysis>(analysis);
+  if (seen !== analysis) {
+    setSeen(analysis);
+    setView(analysis);
+    setAi({ status: "off", progress: 0, msg: "" });
+  }
+
+  const { overview, audit } = view;
   const [tab, setTab] = useState<Tab>("overview");
+
+  const toggleAi = useCallback(async () => {
+    if (ai.status === "loading") return;
+    if (ai.status === "on") {
+      setView(analysis);
+      setAi({ status: "off", progress: 0, msg: "" });
+      return;
+    }
+    setAi({ status: "loading", progress: 0, msg: "Loading model…" });
+    try {
+      const { enhanceAnalysis } = await import("@/lib/ai/categorizeAI");
+      const enhanced = await enhanceAnalysis(analysis, (e) =>
+        setAi((s) => ({
+          status: "loading",
+          progress: typeof e.progress === "number" ? Math.round(e.progress) : s.progress,
+          msg: e.status === "categorizing" ? "Categorizing…" : "Downloading model…",
+        }))
+      );
+      setView(enhanced);
+      setAi({ status: "on", progress: 100, msg: "" });
+    } catch {
+      setAi({ status: "error", progress: 0, msg: "Couldn't load the on-device model." });
+    }
+  }, [ai.status, analysis]);
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
@@ -72,6 +109,41 @@ export default function SpendingDashboard({
         />
       </div>
 
+      {/* On-device AI categorization (opt-in) */}
+      <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-2.5">
+          <BoltIcon className={`mt-0.5 h-4 w-4 shrink-0 ${ai.status === "on" ? "text-accent" : "text-faint"}`} />
+          <div>
+            <p className="text-sm font-medium">
+              Smarter categories{" "}
+              <span className="text-xs font-normal text-faint">· on-device AI</span>
+            </p>
+            <p className="text-xs text-faint">
+              {ai.status === "error"
+                ? ai.msg
+                : "Re-sorts the “Other” pile using a model that runs in your browser — one-time ~25 MB, your data never leaves the device."}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={toggleAi}
+          disabled={ai.status === "loading"}
+          className={`shrink-0 rounded-lg px-3.5 py-2 text-sm font-semibold transition disabled:opacity-70 ${
+            ai.status === "on"
+              ? "border border-accent/40 bg-accent-dim text-accent hover:bg-accent hover:text-bg"
+              : "bg-accent text-bg hover:bg-accent-deep"
+          }`}
+        >
+          {ai.status === "loading"
+            ? `${ai.msg}${ai.progress ? ` ${ai.progress}%` : ""}`
+            : ai.status === "on"
+              ? "On ✓ — turn off"
+              : ai.status === "error"
+                ? "Retry"
+                : "Enable"}
+        </button>
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-1 rounded-xl border border-border bg-surface p-1">
         {tabs.map((t) => (
@@ -97,12 +169,12 @@ export default function SpendingDashboard({
       </div>
 
       {tab === "overview" && (
-        <OverviewTab analysis={analysis} onSeeMerchants={() => setTab("merchants")} />
+        <OverviewTab analysis={view} onSeeMerchants={() => setTab("merchants")} />
       )}
       {tab === "subscriptions" && (
-        <SubscriptionsTab analysis={analysis} onSupport={onSupport} />
+        <SubscriptionsTab analysis={view} onSupport={onSupport} />
       )}
-      {tab === "merchants" && <MerchantsTab analysis={analysis} />}
+      {tab === "merchants" && <MerchantsTab analysis={view} />}
     </div>
   );
 }
