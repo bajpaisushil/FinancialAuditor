@@ -1,4 +1,4 @@
-/** A realistic, messy demo statement so users can try the tool with Wi-Fi off. */
+/** A realistic, messy demo statement so users can try the tool with no internet. */
 export function sampleCsv(): string {
   const rows: string[] = ["Date,Description,Amount"];
 

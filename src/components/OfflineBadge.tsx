@@ -34,7 +34,7 @@ export default function OfflineBadge() {
       }
     >
       <WifiOffIcon className="h-3.5 w-3.5" />
-      {online ? "Wi-Fi on · still 0 bytes sent" : "Offline · still working"}
+      {online ? "Online · still 0 bytes sent" : "Offline · still working"}
     </span>
   );
 }

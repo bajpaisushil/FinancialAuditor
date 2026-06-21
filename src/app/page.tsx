@@ -1,7 +1,7 @@
 import Auditor from "@/components/Auditor";
 import ExportGuide from "@/components/ExportGuide";
 import Logo from "@/components/Logo";
-import { PAYMENT_PAGE_URL, UPI_ID, upiLink } from "@/lib/support";
+import { FEEDBACK_EMAIL, PAYMENT_PAGE_URL, UPI_ID, upiLink } from "@/lib/support";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -78,7 +78,7 @@ export default function Home() {
           <div className="mx-auto mt-8 flex max-w-md items-center justify-center gap-2.5 rounded-xl border border-accent/25 bg-accent-dim/30 px-4 py-3 text-sm">
             <WifiOffIcon className="h-5 w-5 shrink-0 text-accent" />
             <span className="text-pretty text-left text-muted">
-              <span className="font-medium text-text">Don&apos;t trust us? Turn off your Wi-Fi first.</span>{" "}
+              <span className="font-medium text-text">Don&apos;t trust us? Cut your internet first.</span>{" "}
               It works exactly the same — because there&apos;s nowhere for your data to go.
             </span>
           </div>
@@ -271,9 +271,17 @@ export default function Home() {
             <span className="font-medium text-muted">AuditKosh</span>
             <span>· your statement never left this device</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <WifiOffIcon className="h-4 w-4 text-accent" />
-            <span>Built to work with the Wi-Fi off.</span>
+          <div className="flex flex-col items-center gap-1.5 sm:items-end">
+            <a
+              href={`mailto:${FEEDBACK_EMAIL}?subject=AuditKosh%20feedback`}
+              className="font-medium text-muted underline-offset-4 transition hover:text-accent hover:underline"
+            >
+              Found a bug or have an idea? Email us
+            </a>
+            <span className="flex items-center gap-1.5">
+              <WifiOffIcon className="h-4 w-4 text-accent" />
+              Built to work fully offline.
+            </span>
           </div>
         </div>
       </footer>

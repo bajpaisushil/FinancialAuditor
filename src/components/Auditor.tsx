@@ -7,6 +7,7 @@ import { runAnalysis } from "@/lib/analyze";
 import { sampleCsv } from "@/lib/sample";
 import { detectRegion, isDayFirstRegion, regionCurrency } from "@/lib/locale";
 import { setCurrency } from "@/lib/format";
+import { FEEDBACK_EMAIL } from "@/lib/support";
 import type { Analysis, RawTxn } from "@/lib/types";
 import SpendingDashboard from "./SpendingDashboard";
 import SupportModal from "./SupportModal";
@@ -271,6 +272,16 @@ export default function Auditor() {
           {state.phase === "error" && (
             <div className="mt-3 rounded-lg border border-danger/30 bg-danger-dim/40 px-4 py-2.5 text-sm text-danger">
               {state.message}
+              <div className="mt-1.5 text-xs text-muted">
+                Statement not reading right?{" "}
+                <a
+                  href={`mailto:${FEEDBACK_EMAIL}?subject=AuditKosh%20%E2%80%94%20unsupported%20statement`}
+                  className="font-medium text-text underline-offset-2 hover:underline"
+                >
+                  Email us
+                </a>{" "}
+                and we&apos;ll add support for your bank.
+              </div>
               {state.sampleLines && state.sampleLines.length > 0 && (
                 <details className="mt-2 text-muted">
                   <summary className="cursor-pointer text-xs font-medium text-text">

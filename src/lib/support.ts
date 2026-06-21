@@ -2,6 +2,9 @@
 export const UPI_ID = "sushilbajpai2003-2@oksbi";
 export const PAYEE_NAME = "AuditKosh";
 
+/** Contact for bug reports / feature requests / unsupported-bank reports. */
+export const FEEDBACK_EMAIL = "avaranai108@gmail.com";
+
 /**
  * Optional hosted payment page (e.g. https://razorpay.me/@auditkosh).
  * A personal UPI VPA always shows your bank-registered NAME to the payer
