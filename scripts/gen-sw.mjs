@@ -36,7 +36,22 @@ const ASSETS = ${JSON.stringify(urls)};
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
+  event.waitUntil(
+    caches.open(CACHE).then((cache) =>
+      // Cache each asset independently. cache.addAll() is ATOMIC: a single failed
+      // request (a 404, or a host redirecting /index.html -> /) aborts the whole
+      // precache, leaving nothing cached — so lazy chunks like the PDF engine,
+      // which were never fetched while online, break the moment you go offline.
+      // allSettled keeps every asset that *can* be cached.
+      Promise.allSettled(
+        ASSETS.map((url) =>
+          fetch(new Request(url, { cache: "reload" }))
+            .then((res) => (res && res.ok ? cache.put(url, res) : null))
+            .catch(() => null)
+        )
+      )
+    )
+  );
 });
 
 self.addEventListener("activate", (event) => {
