@@ -57,7 +57,14 @@ export default function SpendingDashboard({
       setView(enhanced);
       setAi({ status: "on", progress: 100, msg: "" });
     } catch {
-      setAi({ status: "error", progress: 0, msg: "Couldn't load the on-device model." });
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      setAi({
+        status: "error",
+        progress: 0,
+        msg: offline
+          ? "You're offline — connect once to download the model, then it works offline."
+          : "Couldn't load the model. Check your connection and retry.",
+      });
     }
   }, [ai.status, analysis]);
 
@@ -121,7 +128,7 @@ export default function SpendingDashboard({
             <p className="text-xs text-faint">
               {ai.status === "error"
                 ? ai.msg
-                : "Re-sorts the “Other” pile using a model that runs in your browser — one-time ~25 MB, your data never leaves the device."}
+                : "Re-sorts the “Other” pile with a model that runs in your browser. Enable while online once (~25 MB) — it caches and works offline after. Your data never leaves the device."}
             </p>
           </div>
         </div>

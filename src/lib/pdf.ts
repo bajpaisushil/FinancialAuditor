@@ -493,33 +493,34 @@ export function txnsFromBalances(lines: string[], opts: ParseOptions): RawTxn[] 
 
   const descending = markerSortKey(cands[0].marker, base) >= markerSortKey(cands[cands.length - 1].marker, base);
   const prevOf = (i: number) => (descending ? cands[i + 1] : cands[i - 1]);
-
-  // Validate: do balance deltas reconcile with the stated amounts? If not, this
-  // isn't a running-balance statement and we bail (so other parsers win).
-  let total = 0;
-  let ok = 0;
-  for (let i = 0; i < cands.length; i++) {
+  const tol = (stated: number) => Math.max(1, stated * 0.02);
+  // A row's signed amount = its balance minus the previous transaction's balance.
+  // It "reconciles" when |that delta| matches the row's printed amount.
+  const reconciles = (i: number): number | null => {
     const prev = prevOf(i);
-    if (!prev) continue;
-    total++;
-    const delta = Math.abs(cands[i].balance - prev.balance);
-    if (Math.abs(delta - cands[i].stated) <= Math.max(1, cands[i].stated * 0.02)) ok++;
-  }
-  if (total === 0 || ok / total < 0.6) return [];
+    if (!prev) return null;
+    const delta = cands[i].balance - prev.balance;
+    return Math.abs(Math.abs(delta) - cands[i].stated) <= tol(cands[i].stated) ? delta : null;
+  };
+
+  // Confirm this really is a running-balance statement (enough rows reconcile).
+  // We do NOT require all rows — a single mis-extracted row shouldn't void the rest.
+  let reconciled = 0;
+  for (let i = 0; i < cands.length; i++) if (reconciles(i) !== null) reconciled++;
+  if (reconciled < Math.max(3, Math.floor(cands.length * 0.4))) return [];
 
   const nextYear = makeYearWalker(base);
   const txns: RawTxn[] = [];
   for (let i = 0; i < cands.length; i++) {
     const c = cands[i];
     const year = nextYear(c.marker);
-    const prev = prevOf(i);
-    if (!prev) continue;
-    const delta = c.balance - prev.balance;
-    if (delta >= -0.005) continue; // credit / no movement → not spending
+    const delta = reconciles(i);
+    if (delta === null) continue; // adjacent to a gap / mis-extracted row → skip just this one
+    if (delta >= -0.005) continue; // balance rose → credit, not spending
     if (SELF_RE.test(c.line)) continue;
     const desc = descFromLine(c.line);
     if (!desc) continue;
-    txns.push({ date: new Date(year, c.marker.month - 1, c.marker.day), description: desc, amount: round2(Math.abs(delta)) });
+    txns.push({ date: new Date(year, c.marker.month - 1, c.marker.day), description: desc, amount: round2(c.stated) });
   }
   return txns;
 }
