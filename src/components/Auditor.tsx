@@ -13,6 +13,7 @@ import SpendingDashboard from "./SpendingDashboard";
 import SupportModal from "./SupportModal";
 import OfflineBadge from "./OfflineBadge";
 import OfflineReadyPill from "./OfflineReadyPill";
+import SmartCategoriesPrep from "./SmartCategoriesPrep";
 import { BoltIcon, FileIcon, LockIcon, UploadIcon } from "./icons";
 
 type State =
@@ -270,6 +271,8 @@ export default function Auditor() {
               </>
             )}
           </div>
+
+          {state.phase !== "working" && <SmartCategoriesPrep />}
 
           {state.phase === "error" && (
             <div className="mt-3 rounded-lg border border-danger/30 bg-danger-dim/40 px-4 py-2.5 text-sm text-danger">

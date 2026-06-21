@@ -1,6 +1,7 @@
 import type { Analysis } from "../types";
 import type { Category } from "../categorize";
 import { aggregateCategories } from "../overview";
+import { getAiModel, setAiModel } from "./modelStatus";
 
 /**
  * On-device, embedding-based categorization. A tiny sentence-transformer
@@ -53,9 +54,38 @@ async function getExtractor(onProgress?: ProgressFn): Promise<Extractor> {
         },
       });
       return pipe as unknown as Extractor;
-    })();
+    })().catch((err) => {
+      // Don't cache a rejected promise — otherwise every later attempt (e.g.
+      // hitting "Retry" once back online) just re-returns this same failure and
+      // never re-downloads. Clear it so the next call starts fresh.
+      extractorPromise = null;
+      throw err;
+    });
   }
   return extractorPromise;
+}
+
+/**
+ * Download + cache the model (and build category prototypes) without needing an
+ * analysis yet. Lets the user start the ~25 MB download early — while they're
+ * still online — so categorization works later even offline. Idempotent and
+ * safe to call repeatedly; drives the shared status store for the UI.
+ */
+export async function warmupModel(onProgress?: ProgressFn): Promise<void> {
+  if (getAiModel().status === "ready") return;
+  try {
+    setAiModel({ status: "downloading", progress: 0 });
+    const extractor = await getExtractor((e) => {
+      const p = typeof e.progress === "number" ? Math.round(e.progress) : getAiModel().progress;
+      setAiModel({ status: "downloading", progress: p });
+      onProgress?.(e);
+    });
+    await getPrototypes(extractor);
+    setAiModel({ status: "ready", progress: 100 });
+  } catch (err) {
+    setAiModel({ status: "error", progress: 0 });
+    throw err;
+  }
 }
 
 function dot(a: number[], b: number[]): number {
@@ -136,7 +166,10 @@ async function classifyNames(names: string[], extractor: Extractor): Promise<{ c
  * Analysis. Only merchants the keyword classifier left as "other" are changed.
  */
 export async function enhanceAnalysis(analysis: Analysis, onProgress?: ProgressFn): Promise<Analysis> {
-  const extractor = await getExtractor(onProgress);
+  // Ensure the model is downloaded (no-op if already cached) and keep the shared
+  // status store in sync whether we got here from the landing card or the toggle.
+  await warmupModel(onProgress);
+  const extractor = await getExtractor();
   const { merchants } = analysis.overview;
   onProgress?.({ status: "categorizing" });
 

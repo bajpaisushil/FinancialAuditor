@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Analysis } from "@/lib/types";
 import { CATEGORY_META, type Category } from "@/lib/categorize";
 import { money } from "@/lib/format";
+import { getAiModel, getAiModelServer, subscribeAiModel } from "@/lib/ai/modelStatus";
 import CategoryBreakdown from "./CategoryBreakdown";
 import MonthlyTrend from "./MonthlyTrend";
 import MerchantCard from "./MerchantCard";
@@ -11,7 +12,6 @@ import SubscriptionCard from "./SubscriptionCard";
 import { BoltIcon, HeartIcon, RepeatIcon, TrendUpIcon, UploadIcon } from "./icons";
 
 type Tab = "overview" | "received" | "subscriptions" | "merchants";
-type AiState = { status: "off" | "loading" | "on" | "error"; progress: number; msg: string };
 
 export default function SpendingDashboard({
   analysis,
@@ -26,13 +26,52 @@ export default function SpendingDashboard({
   // AI-enhanced one. Reset (during render, per React docs) whenever a new
   // statement is analyzed.
   const [view, setView] = useState<Analysis>(analysis);
-  const [ai, setAi] = useState<AiState>({ status: "off", progress: 0, msg: "" });
+  // Which analysis the AI enhancement has been successfully applied to (so the
+  // toggle reads "on"), whether the user explicitly turned it off, and whether
+  // a categorize pass is in flight.
+  const [enhancedFor, setEnhancedFor] = useState<Analysis | null>(null);
+  const [userOff, setUserOff] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const attemptedFor = useRef<Analysis | null>(null);
   const [seen, setSeen] = useState<Analysis>(analysis);
   if (seen !== analysis) {
     setSeen(analysis);
     setView(analysis);
-    setAi({ status: "off", progress: 0, msg: "" });
+    setEnhancedFor(null);
+    setUserOff(false);
   }
+
+  // Shared model status — may already be "ready" if the user pre-downloaded the
+  // model on the upload screen (the whole point: enable it while still online).
+  const model = useSyncExternalStore(subscribeAiModel, getAiModel, getAiModelServer);
+  const aiOn = enhancedFor === analysis;
+
+  // Auto-apply the enhancement once the model is ready (and the user hasn't
+  // turned it off). attemptedFor dedupes so a failed categorize doesn't loop.
+  useEffect(() => {
+    if (model.status !== "ready" || userOff || aiOn) return;
+    if (attemptedFor.current === analysis) return;
+    attemptedFor.current = analysis;
+    let cancelled = false;
+    setApplying(true);
+    (async () => {
+      try {
+        const { enhanceAnalysis } = await import("@/lib/ai/categorizeAI");
+        const enhanced = await enhanceAnalysis(analysis);
+        if (!cancelled) {
+          setView(enhanced);
+          setEnhancedFor(analysis);
+        }
+      } catch {
+        /* leave base categories in place; model status reflects the error */
+      } finally {
+        if (!cancelled) setApplying(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [model.status, userOff, aiOn, analysis]);
 
   const { overview, audit } = view;
   // `received` was added after the first release. Guard against an analysis
@@ -49,35 +88,45 @@ export default function SpendingDashboard({
   const [tab, setTab] = useState<Tab>("overview");
 
   const toggleAi = useCallback(async () => {
-    if (ai.status === "loading") return;
-    if (ai.status === "on") {
+    if (model.status === "downloading" || applying) return;
+    if (aiOn) {
+      // Turn off — revert to the instant keyword analysis.
+      setUserOff(true);
+      setEnhancedFor(null);
       setView(analysis);
-      setAi({ status: "off", progress: 0, msg: "" });
       return;
     }
-    setAi({ status: "loading", progress: 0, msg: "Loading model…" });
-    try {
-      const { enhanceAnalysis } = await import("@/lib/ai/categorizeAI");
-      const enhanced = await enhanceAnalysis(analysis, (e) =>
-        setAi((s) => ({
-          status: "loading",
-          progress: typeof e.progress === "number" ? Math.round(e.progress) : s.progress,
-          msg: e.status === "categorizing" ? "Categorizing…" : "Downloading model…",
-        }))
-      );
-      setView(enhanced);
-      setAi({ status: "on", progress: 100, msg: "" });
-    } catch {
-      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-      setAi({
-        status: "error",
-        progress: 0,
-        msg: offline
-          ? "You're offline — connect once to download the model, then it works offline."
-          : "Couldn't load the model. Check your connection and retry.",
-      });
+    // Turn on (or retry). Clear the dedupe guard so the effect re-attempts, and
+    // kick off the download if the model isn't cached yet — the effect applies
+    // the enhancement once it's ready.
+    attemptedFor.current = null;
+    setUserOff(false);
+    if (model.status !== "ready") {
+      try {
+        const { warmupModel } = await import("@/lib/ai/categorizeAI");
+        await warmupModel();
+      } catch {
+        /* model status is now "error"; the button shows Retry */
+      }
     }
-  }, [ai.status, analysis]);
+  }, [model.status, applying, aiOn, analysis]);
+
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const aiLabel = applying
+    ? "Categorizing…"
+    : model.status === "downloading"
+      ? `Downloading… ${model.progress || 0}%`
+      : aiOn
+        ? "On ✓ — turn off"
+        : model.status === "error"
+          ? "Retry"
+          : "Enable";
+  const aiHint =
+    model.status === "error"
+      ? offline
+        ? "You're offline — reconnect once to download the model, then it works offline."
+        : "Couldn't load the model. Check your connection and hit Retry."
+      : "Re-sorts the “Other” pile with a model that runs in your browser. Enabled once while online (~25 MB), it caches and works offline after. Your data never leaves the device.";
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
@@ -146,35 +195,25 @@ export default function SpendingDashboard({
       {/* On-device AI categorization (opt-in) */}
       <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-2.5">
-          <BoltIcon className={`mt-0.5 h-4 w-4 shrink-0 ${ai.status === "on" ? "text-accent" : "text-faint"}`} />
+          <BoltIcon className={`mt-0.5 h-4 w-4 shrink-0 ${aiOn ? "text-accent" : "text-faint"}`} />
           <div>
             <p className="text-sm font-medium">
               Smarter categories{" "}
               <span className="text-xs font-normal text-faint">· on-device AI</span>
             </p>
-            <p className="text-xs text-faint">
-              {ai.status === "error"
-                ? ai.msg
-                : "Re-sorts the “Other” pile with a model that runs in your browser. Enable while online once (~25 MB) — it caches and works offline after. Your data never leaves the device."}
-            </p>
+            <p className={`text-xs ${model.status === "error" ? "text-danger" : "text-faint"}`}>{aiHint}</p>
           </div>
         </div>
         <button
           onClick={toggleAi}
-          disabled={ai.status === "loading"}
+          disabled={model.status === "downloading" || applying}
           className={`shrink-0 rounded-lg px-3.5 py-2 text-sm font-semibold transition disabled:opacity-70 ${
-            ai.status === "on"
+            aiOn
               ? "border border-accent/40 bg-accent-dim text-accent hover:bg-accent hover:text-bg"
               : "bg-accent text-bg hover:bg-accent-deep"
           }`}
         >
-          {ai.status === "loading"
-            ? `${ai.msg}${ai.progress ? ` ${ai.progress}%` : ""}`
-            : ai.status === "on"
-              ? "On ✓ — turn off"
-              : ai.status === "error"
-                ? "Retry"
-                : "Enable"}
+          {aiLabel}
         </button>
       </div>
 
