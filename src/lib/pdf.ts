@@ -66,7 +66,7 @@ interface Base {
 
 function detectBase(headText: string, fallbackYear: number): Base {
   const m = headText.match(
-    /(\d{1,2})\s*([A-Za-z]{3,9})'?\s*(\d{2,4})\s*(?:-|–|—|to)\s*(\d{1,2})\s*([A-Za-z]{3,9})'?\s*(\d{2,4})/i
+    /(\d{1,2})[\s-]*([A-Za-z]{3,9})'?[\s-]*(\d{2,4})\s*(?:-|–|—|to)\s*(\d{1,2})[\s-]*([A-Za-z]{3,9})'?[\s-]*(\d{2,4})/i
   );
   if (m) {
     const endMon = MONTHS[m[5].toLowerCase()];
@@ -91,8 +91,14 @@ function makeYearWalker(base: Base): (m: Marker) => number {
   let prevMonth = base.month;
   let started = false;
   return (marker: Marker) => {
-    if (marker.year !== null) currentYear = marker.year;
-    else if (started && marker.month > prevMonth) currentYear -= 1;
+    if (marker.year !== null) {
+      // An explicit year on the row is authoritative — never clamp it.
+      currentYear = marker.year;
+      prevMonth = marker.month;
+      started = true;
+      return marker.year;
+    }
+    if (started && marker.month > prevMonth) currentYear -= 1;
     prevMonth = marker.month;
     started = true;
     return clampYear(currentYear, base);
@@ -124,11 +130,11 @@ function scanAmounts(text: string): AmtMatch[] {
   return out;
 }
 
-const MONEY_CELL_RE = /^[-+]?\s*(?:rs\.?|₹|inr|\$|£|€)?\s*\d{1,3}(?:[,\s]?\d{2,3})*(?:\.\d{1,2})?\s*(?:cr|dr)?$/i;
+const MONEY_CELL_RE = /^[-+]?\s*(?:rs\.?|₹|inr|\$|£|€)?\s*[\d,]+(?:\.\d{1,2})?\s*(?:cr|dr)?$/i;
 function parseAmountCell(str: string): number | null {
   const s = str.trim();
   if (!MONEY_CELL_RE.test(s)) return null;
-  // Require a decimal, a comma group, or a currency symbol — never a bare integer (ref/phone numbers).
+  // Require a decimal, a comma, or a currency symbol — never a bare integer (ref/phone numbers).
   if (!/[.,]/.test(s) && !/(?:rs|₹|inr|\$|£|€)/i.test(s)) return null;
   const neg = /^-/.test(s) || /dr$/i.test(s);
   const n = parseFloat(s.replace(/[^\d.]/g, ""));
@@ -308,42 +314,77 @@ const HEADER_DEFS: [ColKey, Set<string>][] = [
   ["balance", new Set(["balance", "closingbalance", "runningbalance", "bal", "balanceinr", "availablebalance", "balanceamt"])],
 ];
 
-function detectColumns(row: Row): Columns | null {
+function detectColumns(cells: Cell[]): Columns | null {
   const cols: Columns = {};
-  let hits = 0;
-  for (const cell of row.cells) {
+  for (const cell of cells) {
     const label = cell.str.toLowerCase().replace(/[^a-z]/g, "");
     if (!label) continue;
     for (const [key, set] of HEADER_DEFS) {
       if (cols[key] === undefined && set.has(label)) {
         cols[key] = cell.x;
-        hits++;
         break;
       }
     }
   }
-  const hasMoney = cols.debit !== undefined || cols.credit !== undefined || cols.amount !== undefined;
-  const hasBalanceOrDrCr = cols.balance !== undefined || cols.debit !== undefined || cols.credit !== undefined;
-  // Require a real bank table (date/desc + money + balance-or-Dr/Cr) to avoid matching loose layouts.
-  if (hits >= 3 && (cols.date !== undefined || cols.desc !== undefined) && hasMoney && hasBalanceOrDrCr) return cols;
+  const hasDrCrPair = cols.debit !== undefined && cols.credit !== undefined;
+  const hasAmtBal = cols.amount !== undefined && cols.balance !== undefined;
+  const hasOneSideBal =
+    (cols.debit !== undefined || cols.credit !== undefined) && cols.balance !== undefined;
+  // A real bank table: a date/description column plus a recognizable money structure.
+  if ((cols.date !== undefined || cols.desc !== undefined) && (hasDrCrPair || hasAmtBal || hasOneSideBal)) {
+    return cols;
+  }
   return null;
+}
+
+/** Find the header, allowing it to span up to 3 stacked rows (common in bank PDFs). */
+function detectHeader(rows: Row[]): { cols: Columns; idx: number } | null {
+  for (let i = 0; i < rows.length; i++) {
+    let merged: Cell[] = [];
+    for (let w = 0; w < 3 && i + w < rows.length; w++) {
+      merged = merged.concat(rows[i + w].cells);
+      const cols = detectColumns(merged);
+      if (cols) return { cols, idx: i + w };
+    }
+  }
+  return null;
+}
+
+/** The date cell of a row: the date-parseable cell nearest the date column. */
+function findDate(row: Row, dateX: number | undefined, dayFirst: boolean): Marker | null {
+  let best: Marker | null = null;
+  let bd = Infinity;
+  for (const cell of row.cells) {
+    const m = parseDateMarker(cell.str, dayFirst);
+    if (!m) continue;
+    const d = dateX !== undefined ? Math.abs(cell.x - dateX) : cell.x;
+    if (d < bd) { bd = d; best = m; }
+  }
+  return best;
+}
+
+/** Build a description from the cells sitting in the description column band. */
+function columnDescription(row: Row, cols: Columns, moneyMinX: number): string | null {
+  const left = cols.desc !== undefined ? cols.desc - 30 : cols.date !== undefined ? cols.date + 20 : -Infinity;
+  let s = row.cells
+    .filter((c) => c.x >= left && c.x < moneyMinX - 5)
+    .map((c) => c.str)
+    .join(" ");
+  s = s.replace(/\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b/g, " ").replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
+  return extractDescription(s, [s]);
 }
 
 export function txnsFromColumns(rows: Row[], opts: ParseOptions): RawTxn[] {
   const dayFirst = opts.dayFirst ?? true;
   const refYear = opts.referenceYear ?? new Date().getFullYear();
 
-  let cols: Columns | null = null;
-  let headerIdx = -1;
-  for (let i = 0; i < rows.length; i++) {
-    const c = detectColumns(rows[i]);
-    if (c) { cols = c; headerIdx = i; break; }
-  }
-  if (!cols) return [];
+  const header = detectHeader(rows);
+  if (!header) return [];
+  const { cols, idx: headerIdx } = header;
 
   const moneyCols = (["debit", "credit", "amount", "balance"] as ColKey[])
-    .filter((k) => cols![k] !== undefined)
-    .map((k) => [k, cols![k]!] as [ColKey, number]);
+    .filter((k) => cols[k] !== undefined)
+    .map((k) => [k, cols[k]!] as [ColKey, number]);
   if (!moneyCols.length) return [];
   const moneyMinX = Math.min(...moneyCols.map(([, x]) => x));
 
@@ -354,13 +395,14 @@ export function txnsFromColumns(rows: Row[], opts: ParseOptions): RawTxn[] {
   const txns: RawTxn[] = [];
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
+    // Read the date from its column (rows may start with a serial number).
+    const marker = findDate(row, cols.date, dayFirst);
+    if (!marker) continue; // footer / continuation row
     const text = rowToText(row);
-    const marker = parseDateMarker(text, dayFirst);
-    if (!marker) continue; // continuation / footer rows
     if (SELF_RE.test(text)) { nextYear(marker); continue; }
     const year = nextYear(marker);
 
-    // Assign each numeric cell to its nearest money column.
+    // Assign each numeric cell to its nearest money column (separates withdrawal/deposit/balance).
     const assigned: Partial<Record<ColKey, number>> = {};
     for (const cell of row.cells) {
       const v = parseAmountCell(cell.str);
@@ -377,20 +419,15 @@ export function txnsFromColumns(rows: Row[], opts: ParseOptions): RawTxn[] {
     let outflow: number | null = null;
     if (cols.debit !== undefined || cols.credit !== undefined) {
       if (assigned.debit && assigned.debit !== 0) outflow = Math.abs(assigned.debit);
-      else continue; // credit (or empty) row
+      else continue; // a credit (deposit) or empty row
     } else if (assigned.amount && assigned.amount !== 0) {
       if (INFLOW_KW.test(text)) continue;
       if (assigned.amount < 0 || /\bdr\b/i.test(text) || OUTFLOW_KW.test(text)) outflow = Math.abs(assigned.amount);
-      else continue; // ambiguous direction in an amount-only table
+      else continue;
     }
     if (outflow === null) continue;
 
-    // Description: cells left of the money columns, minus the leading date.
-    const descCells = row.cells.filter((c) => c.x < moneyMinX - 5);
-    let descText = descCells.map((c) => c.str).join(" ");
-    const dm = parseDateMarker(descText, dayFirst);
-    if (dm) descText = descText.slice(dm.len);
-    const desc = extractDescription(descText, [descText]);
+    const desc = columnDescription(row, cols, moneyMinX);
     if (!desc) continue;
 
     txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount: outflow });
@@ -418,9 +455,12 @@ function finalize(txns: RawTxn[], lines: string[], currency: string | null): Pdf
       );
     } else {
       notes.push(
-        "We read the text but couldn't line up the transaction rows in this layout yet. A CSV export will be most accurate. You can also expand the details below and share them so we can support this bank."
+        "We couldn't read this statement's layout automatically. Please try a CSV/Excel export from your bank — that always works."
       );
-      sampleLines = pickSampleLines(lines);
+      // Raw extraction is a developer diagnostic only — never shown to production users.
+      if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+        sampleLines = pickSampleLines(lines);
+      }
     }
   } else {
     notes.push(
