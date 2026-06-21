@@ -615,7 +615,14 @@ export async function parsePdf(
 
   let doc;
   try {
-    doc = await task.promise;
+    // Guard against a worker that never initializes (e.g. its script couldn't
+    // load) leaving the UI stuck on "Scanning…" forever.
+    doc = await Promise.race([
+      task.promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("the in-browser PDF engine timed out")), 60000)
+      ),
+    ]) as Awaited<typeof task.promise>;
   } catch (err) {
     if (err && typeof err === "object" && (err as { name?: string }).name === "PasswordException") {
       const incorrect = (err as { code?: number }).code === 2;

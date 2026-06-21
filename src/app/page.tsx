@@ -1,6 +1,7 @@
 import Auditor from "@/components/Auditor";
 import ExportGuide from "@/components/ExportGuide";
 import Logo from "@/components/Logo";
+import { PAYMENT_PAGE_URL, UPI_ID, upiLink } from "@/lib/support";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -210,18 +211,25 @@ export default function Home() {
             </h2>
             <p className="mx-auto mt-3 max-w-md text-pretty text-muted">
               AuditKosh is free and always will be — there&apos;s no server to bill you
-              from. If it just found you a few hundred dollars of forgotten charges,
-              a coffee back keeps it alive and ad-free.
+              from. If it just found you a few hundred rupees of forgotten charges,
+              a small UPI tip keeps it alive and ad-free.
             </p>
             <a
-              href="https://www.buymeacoffee.com/"
-              target="_blank"
-              rel="noopener noreferrer"
+              href={PAYMENT_PAGE_URL || upiLink()}
+              {...(PAYMENT_PAGE_URL ? { target: "_blank", rel: "noopener noreferrer" } : {})}
               className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-bg transition hover:bg-accent-deep"
             >
-              <HeartIcon className="h-4 w-4" /> Pay what you want
+              <HeartIcon className="h-4 w-4" /> {PAYMENT_PAGE_URL ? "Contribute" : "Tip via UPI"}
             </a>
-            <p className="mt-3 text-xs text-faint">100% optional · the tool stays fully unlocked either way</p>
+            <p className="mt-3 text-xs text-faint">
+              {PAYMENT_PAGE_URL ? (
+                "100% optional · the tool stays fully unlocked either way"
+              ) : (
+                <>
+                  or pay to <span className="font-mono text-muted">{UPI_ID}</span> · 100% optional, fully unlocked either way
+                </>
+              )}
+            </p>
           </div>
         </div>
       </section>

@@ -1,0 +1,12 @@
+{
+  "name": "AuditKosh — private spending auditor",
+  "short_name": "AuditKosh",
+  "description": "Find recurring charges, price hikes and where your money goes — entirely in your browser. No server, works offline.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060a09",
+  "theme_color": "#060a09",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
