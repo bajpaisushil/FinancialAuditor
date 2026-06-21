@@ -36,6 +36,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# cloudflare / wrangler / opennext (build artifacts; we deploy ./out as static assets)
+.wrangler/
+.open-next/
+.dev.vars
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

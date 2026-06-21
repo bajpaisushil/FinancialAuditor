@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "auditkosh",
+  "compatibility_date": "2025-06-01",
+  // Static-only deployment: serve the Next.js static export from ./out.
+  // No "main" worker and no OpenNext — there is no server, by design.
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "404-page"
+  }
+}
