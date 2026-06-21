@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { setOfflineReady } from "@/lib/offlineReady";
 
 /**
  * Registers the offline service worker (production only) and, once it's ready,
@@ -23,6 +24,21 @@ export default function ServiceWorker() {
       for (let i = 0; i < 60 && !navigator.serviceWorker.controller; i++) await sleep(100);
       if (!navigator.serviceWorker.controller) return;
 
+      // Tell the UI we're pulling the offline assets down so it can show a
+      // "preparing offline" shimmer until everything is cached.
+      setOfflineReady("warming");
+
+      // PRIORITY: the lazy PDF engine (~440 KB) and its worker (~1.2 MB). They
+      // are the largest, slowest things to fetch and the ones a user is most
+      // likely to need offline, yet they're never loaded on a normal visit —
+      // so kick them off FIRST and let them download while we re-cache the rest.
+      // Same dynamic import specifier as lib/pdf.ts → same chunk, so this caches
+      // the exact engine a later parse will request.
+      const pdfEngine = Promise.allSettled([
+        import("pdfjs-dist").catch(() => {}),
+        fetch("/pdf.worker.min.mjs").catch(() => {}),
+      ]);
+
       // Re-fetch every same-origin asset THIS page already loaded (its JS/CSS
       // chunks, fonts, the manifest…). On a first visit those were requested
       // before the SW took control, so they bypassed its cache. Pulling them
@@ -40,11 +56,10 @@ export default function ServiceWorker() {
         /* performance API or fetch unavailable — non-fatal */
       }
 
-      // Lazy PDF engine + its worker: never loaded on a normal visit, so warm
-      // them explicitly. Same dynamic import specifier as lib/pdf.ts → same
-      // chunk, so this caches the exact chunk a later parse will request.
-      import("pdfjs-dist").catch(() => {});
-      fetch("/pdf.worker.min.mjs").catch(() => {});
+      await pdfEngine; // make sure the engine has finished caching before we idle
+
+      // Everything a PDF parse needs is now in the durable cache — safe offline.
+      setOfflineReady("ready");
     };
 
     const register = async () => {

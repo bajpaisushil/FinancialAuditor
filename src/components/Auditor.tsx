@@ -12,6 +12,7 @@ import type { Analysis, RawTxn } from "@/lib/types";
 import SpendingDashboard from "./SpendingDashboard";
 import SupportModal from "./SupportModal";
 import OfflineBadge from "./OfflineBadge";
+import OfflineReadyPill from "./OfflineReadyPill";
 import { BoltIcon, FileIcon, LockIcon, UploadIcon } from "./icons";
 
 type State =
@@ -264,6 +265,7 @@ export default function Auditor() {
                     <FileIcon className="h-3.5 w-3.5" /> CSV or PDF
                   </span>
                   <OfflineBadge />
+                  <OfflineReadyPill />
                 </div>
               </>
             )}
