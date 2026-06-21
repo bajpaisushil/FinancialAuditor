@@ -697,12 +697,39 @@ async function openPdf(
   }
 }
 
-export async function parsePdf(
+// pdf.js drives the worker through process-global options
+// (GlobalWorkerOptions.workerPort/workerSrc), so two parses running at once
+// would clobber each other's config. Serialize calls — the app parses one file
+// at a time, and back-to-back drops queue cleanly instead of corrupting state.
+let pdfParseChain: Promise<unknown> = Promise.resolve();
+
+export function parsePdf(
   file: File,
   opts: ParseOptions = {},
   password?: string
 ): Promise<PdfParseOutput> {
-  const pdfjs = await import("pdfjs-dist");
+  const run = pdfParseChain.catch(() => {}).then(() => runParsePdf(file, opts, password));
+  pdfParseChain = run.catch(() => {});
+  return run;
+}
+
+async function runParsePdf(
+  file: File,
+  opts: ParseOptions = {},
+  password?: string
+): Promise<PdfParseOutput> {
+  let pdfjs: typeof import("pdfjs-dist");
+  try {
+    pdfjs = await import("pdfjs-dist");
+  } catch {
+    // The lazily-loaded PDF engine couldn't be fetched — almost always because
+    // we're offline and it wasn't cached yet (the service worker caches it on
+    // the first online visit). Surface something actionable instead of a raw
+    // ChunkLoadError.
+    throw new Error(
+      "The PDF engine isn't available offline yet. Reconnect for a moment so it loads once (then it works offline), or use a CSV export."
+    );
+  }
   const buf = await file.arrayBuffer();
 
   let doc: Awaited<ReturnType<typeof openPdf>>["doc"];
