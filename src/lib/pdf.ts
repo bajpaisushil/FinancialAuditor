@@ -556,7 +556,37 @@ export function parseStatementLines(lines: string[], opts: ParseOptions = {}): P
   return finalize(txnsFromLines(lines, opts), lines, currency);
 }
 
-let workerConfigured = false;
+// pdf.js worker. We fetch the worker script and re-wrap it in a Blob with an
+// explicit JS MIME type, then build a module Worker from that. Why: a hosting
+// provider that serves .mjs with the wrong Content-Type (e.g.
+// application/octet-stream) makes a `new Worker(url, { type: "module" })` fail
+// to START — and that failure is asynchronous, so a try/catch around the
+// constructor never sees it. getDocument() then just hangs. The Blob we
+// control sidesteps every host MIME quirk and still works offline (the fetch
+// is served from the service-worker cache). Cached across calls so the worker
+// stays warm.
+let workerPort: Worker | null = null;
+let workerBlobUrl: string | null = null;
+
+/** Thrown when the worker never starts — signals the caller to retry on the main thread. */
+class WorkerInitError extends Error {}
+
+function isPasswordException(err: unknown): err is { name: string; code?: number } {
+  return !!err && typeof err === "object" && (err as { name?: string }).name === "PasswordException";
+}
+
+async function getWorkerBlobUrl(): Promise<string | null> {
+  if (workerBlobUrl) return workerBlobUrl;
+  try {
+    const res = await fetch(new URL("/pdf.worker.min.mjs", window.location.origin));
+    if (!res.ok) return null;
+    const code = await res.text();
+    workerBlobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+    return workerBlobUrl;
+  } catch {
+    return null;
+  }
+}
 
 export class PdfPasswordError extends Error {
   incorrect: boolean;
@@ -591,44 +621,105 @@ function itemsToRows(items: PdfTextItem[]): Row[] {
     .map(([y, cells]) => ({ y, cells: cells.sort((a, b) => a.x - b.x) }));
 }
 
+/**
+ * Open a PDF and wait for its document to load. Resolves fast and — crucially —
+ * fails fast: if the dedicated module worker can't start, we reject with a
+ * WorkerInitError within seconds (via the worker's own error event or a short
+ * timeout) instead of hanging, so the caller can retry on the main thread.
+ */
+async function openPdf(
+  pdfjs: typeof import("pdfjs-dist"),
+  buf: ArrayBuffer,
+  password: string | undefined,
+  useWorker: boolean
+) {
+  const blobUrl = await getWorkerBlobUrl();
+
+  let worker: Worker | null = null;
+  if (useWorker && blobUrl) {
+    if (!workerPort) workerPort = new Worker(blobUrl, { type: "module" });
+    worker = workerPort;
+    pdfjs.GlobalWorkerOptions.workerPort = worker;
+  } else {
+    // Main-thread fallback: hand pdf.js the blob URL and let it manage things
+    // (it runs the worker code on the main thread if it still can't spawn one).
+    pdfjs.GlobalWorkerOptions.workerPort = null;
+    pdfjs.GlobalWorkerOptions.workerSrc =
+      blobUrl ?? new URL("/pdf.worker.min.mjs", window.location.origin).href;
+  }
+
+  // Fresh copy each attempt — getDocument may transfer (detach) the buffer.
+  const task = pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)), password });
+
+  let onWorkerError: (() => void) | undefined;
+  const guards: Promise<never>[] = [
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new WorkerInitError("timeout")), useWorker ? 10_000 : 25_000)
+    ),
+  ];
+  if (worker) {
+    const w = worker;
+    guards.push(
+      new Promise<never>((_, reject) => {
+        onWorkerError = () => reject(new WorkerInitError("worker error"));
+        w.addEventListener("error", onWorkerError, { once: true });
+        w.addEventListener("messageerror", onWorkerError, { once: true });
+      })
+    );
+  }
+  const cleanup = () => {
+    if (worker && onWorkerError) {
+      worker.removeEventListener("error", onWorkerError);
+      worker.removeEventListener("messageerror", onWorkerError);
+    }
+  };
+
+  try {
+    const doc = (await Promise.race([task.promise, ...guards])) as Awaited<typeof task.promise>;
+    cleanup();
+    return { doc, task };
+  } catch (err) {
+    cleanup();
+    try { task.destroy(); } catch {}
+    if (err instanceof WorkerInitError) {
+      // Dead worker — discard it so the next attempt rebuilds cleanly.
+      if (useWorker) {
+        try { worker?.terminate(); } catch {}
+        if (worker === workerPort) workerPort = null;
+      }
+      throw err;
+    }
+    if (isPasswordException(err)) {
+      const incorrect = err.code === 2;
+      throw new PdfPasswordError(incorrect ? "Incorrect password." : "This PDF is password-protected.", incorrect);
+    }
+    throw err;
+  }
+}
+
 export async function parsePdf(
   file: File,
   opts: ParseOptions = {},
   password?: string
 ): Promise<PdfParseOutput> {
   const pdfjs = await import("pdfjs-dist");
+  const buf = await file.arrayBuffer();
 
-  if (!workerConfigured) {
-    try {
-      pdfjs.GlobalWorkerOptions.workerPort = new Worker(
-        new URL("/pdf.worker.min.mjs", window.location.origin),
-        { type: "module" }
-      );
-    } catch {
-      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-    }
-    workerConfigured = true;
-  }
-
-  const data = new Uint8Array(await file.arrayBuffer());
-  const task = pdfjs.getDocument({ data, password });
-
-  let doc;
+  let doc: Awaited<ReturnType<typeof openPdf>>["doc"];
+  let task: Awaited<ReturnType<typeof openPdf>>["task"];
   try {
-    // Guard against a worker that never initializes (e.g. its script couldn't
-    // load) leaving the UI stuck on "Scanning…" forever.
-    doc = await Promise.race([
-      task.promise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("the in-browser PDF engine timed out")), 60000)
-      ),
-    ]) as Awaited<typeof task.promise>;
+    ({ doc, task } = await openPdf(pdfjs, buf, password, true));
   } catch (err) {
-    if (err && typeof err === "object" && (err as { name?: string }).name === "PasswordException") {
-      const incorrect = (err as { code?: number }).code === 2;
-      throw new PdfPasswordError(incorrect ? "Incorrect password." : "This PDF is password-protected.", incorrect);
+    if (err instanceof PdfPasswordError) throw err;
+    if (!(err instanceof WorkerInitError)) throw err;
+    // The dedicated worker never started — parse on the main thread instead so
+    // the user still gets a result (a little slower, but it actually works).
+    try {
+      ({ doc, task } = await openPdf(pdfjs, buf, password, false));
+    } catch (err2) {
+      if (err2 instanceof WorkerInitError) throw new Error("the in-browser PDF engine timed out");
+      throw err2;
     }
-    throw err;
   }
 
   const allRows: Row[] = [];
