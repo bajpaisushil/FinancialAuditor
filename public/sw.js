@@ -11,8 +11,11 @@
  * fetched. The app warms the lazy PDF engine + worker on load (see
  * ServiceWorker.tsx) so those are cached while online and available offline.
  */
-const CACHE = "auditkosh-runtime-v1";
-const SHELL = ["/", "/index.html"];
+const CACHE = "auditkosh-runtime-v2";
+// Precache the shell + the PDF worker (known, static URL). The hashed pdf.js
+// chunk has an unknowable name from a static file, so it's warmed at runtime
+// through the SW instead (see ServiceWorker.tsx).
+const SHELL = ["/", "/index.html", "/pdf.worker.min.mjs"];
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
