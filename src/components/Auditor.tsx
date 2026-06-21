@@ -17,7 +17,7 @@ type State =
   | { phase: "idle" }
   | { phase: "working" }
   | { phase: "password"; file: File; incorrect: boolean }
-  | { phase: "error"; message: string }
+  | { phase: "error"; message: string; sampleLines?: string[] }
   | { phase: "done"; analysis: Analysis; fileName: string };
 
 export default function Auditor() {
@@ -67,7 +67,7 @@ export default function Auditor() {
       setState({ phase: "working" });
       try {
         const region = detectRegion();
-        const { txns, notes, currency } = await parsePdf(
+        const { txns, notes, currency, sampleLines } = await parsePdf(
           file,
           { dayFirst: isDayFirstRegion(region), referenceYear: new Date().getFullYear() },
           pw
@@ -77,6 +77,7 @@ export default function Auditor() {
           setState({
             phase: "error",
             message: notes[0] ?? "We couldn't find any transactions in that PDF.",
+            sampleLines,
           });
           return;
         }
@@ -268,9 +269,19 @@ export default function Auditor() {
           </div>
 
           {state.phase === "error" && (
-            <p className="mt-3 rounded-lg border border-danger/30 bg-danger-dim/40 px-4 py-2.5 text-sm text-danger">
+            <div className="mt-3 rounded-lg border border-danger/30 bg-danger-dim/40 px-4 py-2.5 text-sm text-danger">
               {state.message}
-            </p>
+              {state.sampleLines && state.sampleLines.length > 0 && (
+                <details className="mt-2 text-muted">
+                  <summary className="cursor-pointer text-xs font-medium text-text">
+                    Show what we extracted (copy &amp; share to get your bank supported)
+                  </summary>
+                  <pre className="scroll-slim mt-2 max-h-56 overflow-auto rounded-md bg-bg-soft p-2 text-[11px] leading-relaxed text-faint">
+                    {state.sampleLines.join("\n")}
+                  </pre>
+                </details>
+              )}
+            </div>
           )}
 
           <div className="mt-4 flex items-center justify-center gap-3 text-sm">

@@ -6,6 +6,8 @@ export interface PdfParseOutput {
   txns: RawTxn[];
   notes: string[];
   currency: string | null;
+  /** A few extracted text lines, surfaced when parsing fails so the layout can be reported. */
+  sampleLines?: string[];
 }
 
 const MONTHS: Record<string, number> = {
@@ -18,7 +20,6 @@ interface Marker {
   day: number;
   month: number;
   year: number | null;
-  /** Characters consumed from the start of the line by the date. */
   len: number;
 }
 
@@ -29,7 +30,6 @@ const DATE_RANGE_RE =
 /** A line is a date marker when it STARTS with a recognizable date. */
 function parseDateMarker(line: string, dayFirst: boolean): Marker | null {
   if (DATE_RANGE_RE.test(line)) return null;
-  // "20 Jun" / "20 Jun 2025" / "20 June 25" / "21 JUN'25"
   let m = line.match(/^\s*(\d{1,2})\s+([A-Za-z]{3,9})\.?(?:[\s']+(\d{2,4}))?\b/);
   if (m) {
     const mon = MONTHS[m[2].toLowerCase()];
@@ -40,10 +40,8 @@ function parseDateMarker(line: string, dayFirst: boolean): Marker | null {
       return { day, month: mon, year, len: m[0].length };
     }
   }
-  // ISO: 2025-06-20
   m = line.match(/^\s*(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
   if (m) return { year: +m[1], month: +m[2], day: +m[3], len: m[0].length };
-  // DD/MM/YYYY or MM/DD/YYYY
   m = line.match(/^\s*(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/);
   if (m) {
     let y = +m[3];
@@ -66,7 +64,6 @@ interface Base {
   maxYear: number;
 }
 
-/** Most-recent year/month for inferring year-less dates, plus a year range to clamp to. */
 function detectBase(headText: string, fallbackYear: number): Base {
   const m = headText.match(
     /(\d{1,2})\s*([A-Za-z]{3,9})'?\s*(\d{2,4})\s*(?:-|–|—|to)\s*(\d{1,2})\s*([A-Za-z]{3,9})'?\s*(\d{2,4})/i
@@ -77,9 +74,7 @@ function detectBase(headText: string, fallbackYear: number): Base {
     if (startYear < 100) startYear += startYear < 70 ? 2000 : 1900;
     let endYear = +m[6];
     if (endYear < 100) endYear += endYear < 70 ? 2000 : 1900;
-    if (endMon) {
-      return { year: endYear, month: endMon, minYear: Math.min(startYear, endYear), maxYear: endYear };
-    }
+    if (endMon) return { year: endYear, month: endMon, minYear: Math.min(startYear, endYear), maxYear: endYear };
   }
   const y = headText.match(/\b(20\d{2})\b/);
   const year = y ? +y[1] : fallbackYear;
@@ -90,20 +85,29 @@ function clampYear(year: number, base: Base): number {
   return Math.max(base.minYear, Math.min(base.maxYear, year));
 }
 
+/** Walk markers in document order (newest→oldest) and infer the year for year-less dates. */
+function makeYearWalker(base: Base): (m: Marker) => number {
+  let currentYear = base.year;
+  let prevMonth = base.month;
+  let started = false;
+  return (marker: Marker) => {
+    if (marker.year !== null) currentYear = marker.year;
+    else if (started && marker.month > prevMonth) currentYear -= 1;
+    prevMonth = marker.month;
+    started = true;
+    return clampYear(currentYear, base);
+  };
+}
+
 interface AmtMatch {
   value: number;
   sign: "" | "+" | "-";
   drcr: "" | "cr" | "dr";
 }
 
-/**
- * Find money figures. Either currency-prefixed (Rs./₹/$…) where the number may
- * be a plain integer, OR a bare number that is comma-grouped or has 2 decimals
- * (so phone/reference numbers are never mistaken for amounts).
- */
 function scanAmounts(text: string): AmtMatch[] {
   const re =
-    /([+-])?\s*(?:rs\.?|inr|₹|\$|£|€)\s*([\d,]+(?:\.\d{1,2})?)\s*(cr|dr)?|([+-])?\s*((?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)|(?:\d+\.\d{2}))\s*(cr|dr)?/gi;
+    /([+-])?\s*(?:rs\.?|inr|₹|\$|£|€)\s*([\d,]+(?:\.\d{1,2})?)\s*(cr|dr)?|([+-])?\s*((?:\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?)|(?:\d+\.\d{2}))\s*(cr|dr)?/gi;
   const out: AmtMatch[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
@@ -120,7 +124,18 @@ function scanAmounts(text: string): AmtMatch[] {
   return out;
 }
 
-/** The transaction amount is the (last) signed/Dr-Cr figure, else the last figure. */
+const MONEY_CELL_RE = /^[-+]?\s*(?:rs\.?|₹|inr|\$|£|€)?\s*\d{1,3}(?:[,\s]?\d{2,3})*(?:\.\d{1,2})?\s*(?:cr|dr)?$/i;
+function parseAmountCell(str: string): number | null {
+  const s = str.trim();
+  if (!MONEY_CELL_RE.test(s)) return null;
+  // Require a decimal, a comma group, or a currency symbol — never a bare integer (ref/phone numbers).
+  if (!/[.,]/.test(s) && !/(?:rs|₹|inr|\$|£|€)/i.test(s)) return null;
+  const neg = /^-/.test(s) || /dr$/i.test(s);
+  const n = parseFloat(s.replace(/[^\d.]/g, ""));
+  if (isNaN(n)) return null;
+  return neg ? -n : n;
+}
+
 function pickAmount(amts: AmtMatch[]): { value: number; direction: "in" | "out" | null } | null {
   if (!amts.length) return null;
   const directional = amts.filter((a) => a.sign || a.drcr);
@@ -132,38 +147,35 @@ function pickAmount(amts: AmtMatch[]): { value: number; direction: "in" | "out" 
 }
 
 const SELF_RE = /transferred to self|self[\s-]?transfer|#\s*self/i;
-const INFLOW_KW = /received from|cashback|refund|reversal|\bcredit\b|deposit|\binward\b|money added/i;
-const OUTFLOW_KW = /paid to|money sent|sent to|payment to|recharge|purchase of|\bdebit\b|withdrawal|emi for|automatic payment|paid/i;
+const INFLOW_KW = /received from|cashback|refund|reversal|\bcredit\b|deposit|\binward\b|money added|\bcr\b|\bneft cr\b|salary|interest/i;
+const OUTFLOW_KW = /paid to|money sent|sent to|payment to|recharge|purchase of|\bdebit\b|withdrawal|withdrawn|\bwdl\b|atm|emi for|automatic payment|\bpaid\b|\bdr\b|pos\b|imps\b|upi\b/i;
 
 const DESC_RE =
   /(money added to|money sent to|paid to|received from|recharge for|recharge of|purchase of|refund (?:from|for)|cashback received from|emi for|automatic payment of [^]*? for|automatic payment for|gold coin redemption|paytm merchant|transferred to self)\s*([^]*?)(?=\s*(?:upi id|upi ref|bank ref|order id|note\s*:|tag\s*:|#|union bank|idbi bank|kotak|axis bank|hdfc|icici|\bsbi\b|gold coins|loyalty|upi lite|upi linked|$))/i;
 
 const SKIP_LINE_RE =
-  /^(upi id|upi ref|bank ref|order id|note\b|note:|tag\b|tag:|#|powered by|page \d|for any queries|contact us|passbook|all payments done|date &|date\b|transaction details|notes &|your account|amount\b|paytm statement|total money|\d+ payments|self transfer)/i;
+  /^(upi id|upi ref|bank ref|order id|note\b|note:|tag\b|tag:|#|powered by|page \d|for any queries|contact us|passbook|all payments done|date &|date\b|transaction details|notes &|your account|amount\b|paytm statement|total money|\d+ payments|self transfer|opening balance|closing balance|brought forward|statement|particulars|narration|description)/i;
 
 const ACCOUNT_ONLY_RE =
   /^(union bank of india|union bank|idbi bank|kotak|axis bank|hdfc|icici|gold coins|loyalty_point|upi lite|upi linked bank|india\s*-\s*\d+)\b/i;
 
-const AMOUNT_ONLY_RE = /^[-+]?\s*(?:rs\.?|₹|inr)?\s*[\d,]+(?:\.\d{1,2})?\s*(?:cr|dr)?$/i;
+const AMOUNT_ONLY_RE = /^[-+]?\s*(?:rs\.?|₹|inr|\$)?\s*[\d,]+(?:\.\d{1,2})?\s*(?:cr|dr)?$/i;
 const TIME_RE = /^\d{1,2}:\d{2}\s*(?:am|pm)?\b/i;
 
-/** Remove money figures and Dr/Cr/balance noise from a fragment. */
 function stripAmounts(s: string): string {
   return s
     .replace(/[+-]?\s*(?:rs\.?|inr|₹|\$|£|€)\s*[\d,]+(?:\.\d{1,2})?\s*(?:cr|dr)?/gi, " ")
-    .replace(/[+-]?\s*(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2})\s*(?:cr|dr)?/gi, " ")
+    .replace(/[+-]?\s*(?:\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+\.\d{2})\s*(?:cr|dr)?/gi, " ")
     .replace(/\b(?:dr|cr|debit|credit|balance|bal)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** Get a human description from a transaction block. */
 function extractDescription(blockText: string, candidateLines: string[]): string | null {
   const d = blockText.match(DESC_RE);
   if (d) {
     const verb = d[1].toLowerCase();
     const target = (d[2] ?? "").trim();
-    // "Automatic payment of ₹15000 setup for Google Cloud" → just "Google Cloud".
     const desc = stripAmounts(/automatic payment/.test(verb) ? target || d[1] : `${d[1]} ${target}`);
     if (desc.length >= 3) return desc;
   }
@@ -181,22 +193,17 @@ function extractDescription(blockText: string, candidateLines: string[]): string
   return null;
 }
 
+// ─────────────────────────── Line / block parser (Paytm-style) ───────────────────────────
+
 interface Block {
   marker: Marker;
   lines: string[];
 }
 
-/**
- * Parse statement text lines into outgoing transactions.
- * Primary: block mode (split on date markers — handles multi-line rows and
- * year-less "DD Mon" dates). Fallback: per-line mode for single-line layouts.
- */
-export function parseStatementLines(lines: string[], opts: ParseOptions = {}): PdfParseOutput {
+function txnsFromLines(lines: string[], opts: ParseOptions): RawTxn[] {
   const dayFirst = opts.dayFirst ?? true;
   const refYear = opts.referenceYear ?? new Date().getFullYear();
-  const currency = detectCurrencyFromText(lines.join("\n"));
 
-  // Build blocks delimited by date markers.
   const blocks: Block[] = [];
   let firstMarkerIdx = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -212,31 +219,16 @@ export function parseStatementLines(lines: string[], opts: ParseOptions = {}): P
   const headText = lines.slice(0, firstMarkerIdx === -1 ? 60 : firstMarkerIdx + 1).join(" ");
   const base = detectBase(headText, refYear);
 
-  const txns: RawTxn[] =
-    blocks.length >= 3
-      ? parseBlocks(blocks, base)
-      : parsePerLine(lines, base, dayFirst);
-
-  return finalize(txns, lines, currency);
+  return blocks.length >= 3 ? parseBlocks(blocks, base) : parsePerLine(lines, base, dayFirst);
 }
 
 function parseBlocks(blocks: Block[], base: Base): RawTxn[] {
   const txns: RawTxn[] = [];
-  let currentYear = base.year;
-  let prevMonth = base.month;
-  let started = false;
+  const nextYear = makeYearWalker(base);
 
   for (const block of blocks) {
     const { marker } = block;
-    // Assign a year (statements run newest → oldest; month rising = crossed New Year going back).
-    if (marker.year !== null) {
-      currentYear = marker.year;
-    } else if (started && marker.month > prevMonth) {
-      currentYear -= 1;
-    }
-    prevMonth = marker.month;
-    started = true;
-    const year = clampYear(currentYear, base);
+    const year = nextYear(marker);
 
     const text = block.lines.join(" ");
     if (SELF_RE.test(text)) continue;
@@ -251,37 +243,26 @@ function parseBlocks(blocks: Block[], base: Base): RawTxn[] {
     }
     if (dir !== "out") continue;
 
-    // Candidate description lines: the marker line minus its date, then the rest.
     const first = block.lines[0].slice(marker.len).trim();
     const candidates = first ? [first, ...block.lines.slice(1)] : block.lines.slice(1);
     const desc = extractDescription(text, candidates);
     if (!desc) continue;
 
-    txns.push({
-      date: new Date(year, marker.month - 1, marker.day),
-      description: desc,
-      amount: Math.abs(picked.value),
-    });
+    txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount: Math.abs(picked.value) });
   }
   return txns;
 }
 
-/** Fallback for single-line layouts: each line with a date + amount is a transaction. */
 function parsePerLine(lines: string[], base: Base, dayFirst: boolean): RawTxn[] {
   const txns: RawTxn[] = [];
   let lastDate: Date | null = null;
-  let currentYear = base.year;
-  let prevMonth = base.month;
+  const nextYear = makeYearWalker(base);
 
   for (const line of lines) {
     if (SELF_RE.test(line)) continue;
     const marker = parseDateMarker(line, dayFirst);
-    if (marker) {
-      if (marker.year !== null) currentYear = marker.year;
-      else if (marker.month > prevMonth) currentYear -= 1;
-      prevMonth = marker.month;
-      lastDate = new Date(clampYear(marker.year ?? currentYear, base), marker.month - 1, marker.day);
-    }
+    if (marker) lastDate = new Date(nextYear(marker), marker.month - 1, marker.day);
+
     const picked = pickAmount(scanAmounts(line));
     if (!picked || picked.value === 0 || !lastDate) continue;
 
@@ -300,26 +281,154 @@ function parsePerLine(lines: string[], base: Base, dayFirst: boolean): RawTxn[] 
   return txns;
 }
 
+// ─────────────────────── Column-aware parser (tabular bank statements) ───────────────────────
+
+interface Cell {
+  x: number;
+  str: string;
+}
+interface Row {
+  y: number;
+  cells: Cell[];
+}
+
+function rowToText(row: Row): string {
+  return row.cells.map((c) => c.str).join(" ").replace(/\s+/g, " ").trim();
+}
+
+type ColKey = "date" | "desc" | "debit" | "credit" | "amount" | "balance";
+type Columns = Partial<Record<ColKey, number>>;
+
+const HEADER_DEFS: [ColKey, Set<string>][] = [
+  ["date", new Set(["date", "txndate", "transactiondate", "valuedate", "postingdate", "trandate", "datetime", "valuedt", "txn"])],
+  ["desc", new Set(["description", "narration", "particulars", "details", "remarks", "payee", "transactiondetails", "naration", "transaction", "transactionremarks", "transactionparticulars"])],
+  ["debit", new Set(["debit", "withdrawal", "withdrawals", "withdrawl", "dr", "paidout", "moneyout", "withdrawalamt", "debitamount", "withdrawaldr", "debits", "withdrawalsdr", "amountdr"])],
+  ["credit", new Set(["credit", "deposit", "deposits", "cr", "paidin", "moneyin", "depositamt", "creditamount", "depositcr", "credits", "amountcr"])],
+  ["amount", new Set(["amount", "amt", "transactionamount", "amountinr"])],
+  ["balance", new Set(["balance", "closingbalance", "runningbalance", "bal", "balanceinr", "availablebalance", "balanceamt"])],
+];
+
+function detectColumns(row: Row): Columns | null {
+  const cols: Columns = {};
+  let hits = 0;
+  for (const cell of row.cells) {
+    const label = cell.str.toLowerCase().replace(/[^a-z]/g, "");
+    if (!label) continue;
+    for (const [key, set] of HEADER_DEFS) {
+      if (cols[key] === undefined && set.has(label)) {
+        cols[key] = cell.x;
+        hits++;
+        break;
+      }
+    }
+  }
+  const hasMoney = cols.debit !== undefined || cols.credit !== undefined || cols.amount !== undefined;
+  const hasBalanceOrDrCr = cols.balance !== undefined || cols.debit !== undefined || cols.credit !== undefined;
+  // Require a real bank table (date/desc + money + balance-or-Dr/Cr) to avoid matching loose layouts.
+  if (hits >= 3 && (cols.date !== undefined || cols.desc !== undefined) && hasMoney && hasBalanceOrDrCr) return cols;
+  return null;
+}
+
+export function txnsFromColumns(rows: Row[], opts: ParseOptions): RawTxn[] {
+  const dayFirst = opts.dayFirst ?? true;
+  const refYear = opts.referenceYear ?? new Date().getFullYear();
+
+  let cols: Columns | null = null;
+  let headerIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const c = detectColumns(rows[i]);
+    if (c) { cols = c; headerIdx = i; break; }
+  }
+  if (!cols) return [];
+
+  const moneyCols = (["debit", "credit", "amount", "balance"] as ColKey[])
+    .filter((k) => cols![k] !== undefined)
+    .map((k) => [k, cols![k]!] as [ColKey, number]);
+  if (!moneyCols.length) return [];
+  const moneyMinX = Math.min(...moneyCols.map(([, x]) => x));
+
+  const headText = rows.slice(0, headerIdx + 1).map(rowToText).join(" ");
+  const base = detectBase(headText, refYear);
+  const nextYear = makeYearWalker(base);
+
+  const txns: RawTxn[] = [];
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const text = rowToText(row);
+    const marker = parseDateMarker(text, dayFirst);
+    if (!marker) continue; // continuation / footer rows
+    if (SELF_RE.test(text)) { nextYear(marker); continue; }
+    const year = nextYear(marker);
+
+    // Assign each numeric cell to its nearest money column.
+    const assigned: Partial<Record<ColKey, number>> = {};
+    for (const cell of row.cells) {
+      const v = parseAmountCell(cell.str);
+      if (v === null) continue;
+      let best: ColKey | null = null;
+      let bd = Infinity;
+      for (const [k, x] of moneyCols) {
+        const dist = Math.abs(cell.x - x);
+        if (dist < bd) { bd = dist; best = k; }
+      }
+      if (best && bd < 160) assigned[best] = v;
+    }
+
+    let outflow: number | null = null;
+    if (cols.debit !== undefined || cols.credit !== undefined) {
+      if (assigned.debit && assigned.debit !== 0) outflow = Math.abs(assigned.debit);
+      else continue; // credit (or empty) row
+    } else if (assigned.amount && assigned.amount !== 0) {
+      if (INFLOW_KW.test(text)) continue;
+      if (assigned.amount < 0 || /\bdr\b/i.test(text) || OUTFLOW_KW.test(text)) outflow = Math.abs(assigned.amount);
+      else continue; // ambiguous direction in an amount-only table
+    }
+    if (outflow === null) continue;
+
+    // Description: cells left of the money columns, minus the leading date.
+    const descCells = row.cells.filter((c) => c.x < moneyMinX - 5);
+    let descText = descCells.map((c) => c.str).join(" ");
+    const dm = parseDateMarker(descText, dayFirst);
+    if (dm) descText = descText.slice(dm.len);
+    const desc = extractDescription(descText, [descText]);
+    if (!desc) continue;
+
+    txns.push({ date: new Date(year, marker.month - 1, marker.day), description: desc, amount: outflow });
+  }
+  return txns;
+}
+
 function finalize(txns: RawTxn[], lines: string[], currency: string | null): PdfParseOutput {
   const totalChars = lines.reduce((s, l) => s + l.length, 0);
   const notes: string[] = [];
+  let sampleLines: string[] | undefined;
   if (txns.length === 0) {
-    notes.push(
-      totalChars < 200
-        ? "This looks like a scanned or image-only PDF with no selectable text. Try a CSV export, or a PDF whose text you can highlight."
-        : "We read the text but couldn't recognize the transaction rows in this layout. A CSV export will be far more accurate — please report the bank/format so we can support it."
-    );
+    if (totalChars < 200) {
+      notes.push(
+        "This looks like a scanned or image-only PDF with no selectable text. Try a CSV export, or a PDF whose text you can highlight."
+      );
+    } else {
+      notes.push(
+        "We read the text but couldn't line up the transaction rows in this layout yet. A CSV export will be most accurate. You can also expand the details below and share them so we can support this bank."
+      );
+      sampleLines = lines.filter((l) => l.trim().length > 1).slice(0, 18);
+    }
   } else {
     notes.push(
       `Read ${txns.length} transactions from the PDF. PDF parsing is best-effort — if anything looks off, a CSV export is more precise.`
     );
   }
-  return { txns, notes, currency };
+  return { txns, notes, currency, sampleLines };
+}
+
+/** Public: parse already-reconstructed text lines (line/block strategy). Used by tests. */
+export function parseStatementLines(lines: string[], opts: ParseOptions = {}): PdfParseOutput {
+  const currency = detectCurrencyFromText(lines.join("\n"));
+  return finalize(txnsFromLines(lines, opts), lines, currency);
 }
 
 let workerConfigured = false;
 
-/** Raised by pdf.js when a PDF needs a password (or the one given was wrong). */
 export class PdfPasswordError extends Error {
   incorrect: boolean;
   constructor(message: string, incorrect = false) {
@@ -334,9 +443,9 @@ interface PdfTextItem {
   transform: number[];
 }
 
-/** Reconstruct visual rows from positioned PDF text items (top→bottom, left→right). */
-function itemsToLines(items: PdfTextItem[]): string[] {
-  const buckets = new Map<number, { x: number; str: string }[]>();
+/** Reconstruct visual rows (with cell x-positions) from positioned PDF text items. */
+function itemsToRows(items: PdfTextItem[]): Row[] {
+  const buckets = new Map<number, Cell[]>();
   for (const it of items) {
     if (!it.str || !it.str.trim()) continue;
     const y = Math.round(it.transform[5]);
@@ -350,13 +459,9 @@ function itemsToLines(items: PdfTextItem[]): string[] {
   }
   return [...buckets.entries()]
     .sort(([a], [b]) => b - a)
-    .map(([, parts]) =>
-      parts.sort((a, b) => a.x - b.x).map((p) => p.str).join(" ").replace(/\s+/g, " ").trim()
-    )
-    .filter(Boolean);
+    .map(([y, cells]) => ({ y, cells: cells.sort((a, b) => a.x - b.x) }));
 }
 
-/** Extract transactions from a PDF entirely in the browser via pdf.js. */
 export async function parsePdf(
   file: File,
   opts: ParseOptions = {},
@@ -390,7 +495,7 @@ export async function parsePdf(
     throw err;
   }
 
-  const allLines: string[] = [];
+  const allRows: Row[] = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
@@ -398,13 +503,20 @@ export async function parsePdf(
     for (const i of content.items) {
       if ("str" in i) items.push({ str: i.str, transform: i.transform });
     }
-    allLines.push(...itemsToLines(items));
+    allRows.push(...itemsToRows(items));
   }
   await task.destroy();
 
-  const result = parseStatementLines(allLines, opts);
-  if (result.txns.length === 0 && allLines.length > 0 && process.env.NODE_ENV !== "production") {
-    console.warn("[pdf] No transactions parsed. First lines extracted:\n" + allLines.slice(0, 50).join("\n"));
+  const lines = allRows.map(rowToText).filter(Boolean);
+  const currency = detectCurrencyFromText(lines.join("\n"));
+
+  // Run both strategies; use whichever recognizes more transactions.
+  const columnTxns = txnsFromColumns(allRows, opts);
+  const lineTxns = txnsFromLines(lines, opts);
+  const txns = columnTxns.length > lineTxns.length ? columnTxns : lineTxns;
+
+  if (txns.length === 0 && lines.length > 0 && process.env.NODE_ENV !== "production") {
+    console.warn("[pdf] No transactions parsed. First lines extracted:\n" + lines.slice(0, 50).join("\n"));
   }
-  return result;
+  return finalize(txns, lines, currency);
 }
