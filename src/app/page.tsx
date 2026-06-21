@@ -1,65 +1,344 @@
-import Image from "next/image";
+import Auditor from "@/components/Auditor";
+import {
+  ArrowRightIcon,
+  BoltIcon,
+  EyeOffIcon,
+  HeartIcon,
+  LockIcon,
+  RepeatIcon,
+  ShieldIcon,
+  TrendUpIcon,
+  WifiOffIcon,
+} from "@/components/icons";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="backdrop-vault flex-1">
+      {/* Nav */}
+      <header className="sticky top-0 z-30 border-b border-border-soft/60 bg-bg/70 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-bg">
+              <ShieldIcon className="h-4.5 w-4.5" />
+            </div>
+            <span className="font-semibold tracking-tight">Vaultline</span>
+          </div>
+          <nav className="hidden items-center gap-6 text-sm text-muted sm:flex">
+            <a href="#how" className="transition hover:text-text">How it works</a>
+            <a href="#why" className="transition hover:text-text">Why trust it</a>
+            <a href="#faq" className="transition hover:text-text">FAQ</a>
+          </nav>
+          <a
+            href="#auditor"
+            className="rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-bg transition hover:bg-accent-deep"
+          >
+            Scan free
+          </a>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="mx-auto max-w-6xl px-5 pt-16 pb-10 sm:pt-24">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted">
+            <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+            Zero servers · Zero accounts · Zero data collected
+          </div>
+
+          <h1 className="text-balance text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
+            Find the subscriptions
+            <br className="hidden sm:block" /> quietly{" "}
+            <span className="text-accent">bleeding you dry</span>.
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="mx-auto mt-5 max-w-xl text-pretty text-lg leading-relaxed text-muted">
+            Drop your bank statement. We surface every recurring charge and sneaky
+            price hike — without you ever linking a bank account, creating a login,
+            or sending a single byte to anyone.
           </p>
+
+          <div className="mx-auto mt-7 flex max-w-md items-center justify-center gap-3">
+            <a
+              href="#auditor"
+              className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-bg transition hover:bg-accent-deep"
+            >
+              Scan my statement <ArrowRightIcon className="h-4 w-4" />
+            </a>
+            <a
+              href="#why"
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-5 py-3 text-sm font-medium text-muted transition hover:text-text"
+            >
+              Why it&apos;s safe
+            </a>
+          </div>
+
+          {/* The signature hook */}
+          <div className="mx-auto mt-8 flex max-w-md items-center justify-center gap-2.5 rounded-xl border border-accent/25 bg-accent-dim/30 px-4 py-3 text-sm">
+            <WifiOffIcon className="h-5 w-5 shrink-0 text-accent" />
+            <span className="text-pretty text-left text-muted">
+              <span className="font-medium text-text">Don&apos;t trust us? Turn off your Wi-Fi first.</span>{" "}
+              It works exactly the same — because there&apos;s nowhere for your data to go.
+            </span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </section>
+
+      {/* The tool */}
+      <section className="mx-auto max-w-6xl px-5 pb-20">
+        <Auditor />
+      </section>
+
+      {/* Why trust it */}
+      <section id="why" className="border-y border-border-soft bg-bg-soft/40 py-20">
+        <div className="mx-auto max-w-6xl px-5">
+          <SectionTitle
+            kicker="The trust problem"
+            title="Other apps fix your money by taking your bank login."
+            sub="Rocket Money, Mint and the rest route your real credentials through Plaid, then keep a copy of every transaction you ever make. Vaultline takes a different bet: the safest data is the data we never receive."
+          />
+
+          <div className="mt-12 grid gap-4 md:grid-cols-2">
+            <CompareCard
+              tone="bad"
+              title="The Plaid way"
+              points={[
+                "You hand over your actual bank username & password",
+                "Your transaction history is copied to their servers",
+                "Data can be sold, breached, or harvested for ads",
+                "You need an account, and cancelling is a maze",
+              ]}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <CompareCard
+              tone="good"
+              title="The Vaultline way"
+              points={[
+                "You export a CSV — a file you already own",
+                "It's parsed in your browser tab and never uploaded",
+                "Nothing to breach, because nothing is stored",
+                "No login, no email, close the tab and it's gone",
+              ]}
+            />
+          </div>
         </div>
-      </main>
+      </section>
+
+      {/* How it works */}
+      <section id="how" className="py-20">
+        <div className="mx-auto max-w-6xl px-5">
+          <SectionTitle
+            kicker="How it works"
+            title="Three steps. Your data never leaves the room."
+          />
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            <StepCard
+              n="01"
+              icon={<LockIcon className="h-5 w-5" />}
+              title="Export & drop"
+              body="Download a CSV from your bank or card and drag it in. No connecting accounts, no OAuth, no Plaid."
+            />
+            <StepCard
+              n="02"
+              icon={<BoltIcon className="h-5 w-5" />}
+              title="We scan locally"
+              body="JavaScript in your browser groups merchants, measures the gaps between charges, and flags what repeats."
+            />
+            <StepCard
+              n="03"
+              icon={<TrendUpIcon className="h-5 w-5" />}
+              title="See the bleed"
+              body="Get every subscription, its true monthly cost, and any silent price hikes — then go cancel the dead ones."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* What makes it different */}
+      <section className="border-y border-border-soft bg-bg-soft/40 py-20">
+        <div className="mx-auto max-w-6xl px-5">
+          <SectionTitle
+            kicker="What's actually new here"
+            title="Privacy wasn't the feature people gave up. It was the price of entry."
+          />
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <FeatureCard
+              icon={<EyeOffIcon className="h-5 w-5" />}
+              title="Provably private"
+              body="Most apps say 'we value your privacy.' We let you prove it — kill your network connection and run the whole audit offline."
+            />
+            <FeatureCard
+              icon={<RepeatIcon className="h-5 w-5" />}
+              title="Smart recurrence engine"
+              body="It doesn't just keyword-match 'Netflix.' It clusters messy merchant strings and scores how rhythmically each one repeats."
+            />
+            <FeatureCard
+              icon={<TrendUpIcon className="h-5 w-5" />}
+              title="Price-hike radar"
+              body="The thing subscriptions count on you not noticing: the slow creep. We chart each charge and call out the increase."
+            />
+            <FeatureCard
+              icon={<ShieldIcon className="h-5 w-5" />}
+              title="No backend to breach"
+              body="There is no database with your name in it. The most secure architecture is the one that doesn't exist."
+            />
+            <FeatureCard
+              icon={<BoltIcon className="h-5 w-5" />}
+              title="Instant, no signup"
+              body="No 'create an account to see your results' wall. Drop the file, read the numbers, close the tab."
+            />
+            <FeatureCard
+              icon={<HeartIcon className="h-5 w-5" />}
+              title="Free, genuinely"
+              body="Every feature is unlocked for everyone. If it saves you money, you can tip — but you never have to."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Support / pay-what-you-want */}
+      <section className="py-20">
+        <div className="mx-auto max-w-3xl px-5">
+          <div className="relative overflow-hidden rounded-2xl border border-accent/30 bg-gradient-to-br from-accent-dim/40 via-surface to-surface p-8 text-center sm:p-12">
+            <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-accent-dim text-accent">
+              <HeartIcon className="h-6 w-6" />
+            </div>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              No paywall. Just a tip jar.
+            </h2>
+            <p className="mx-auto mt-3 max-w-md text-pretty text-muted">
+              Vaultline is free and always will be — there&apos;s no server to bill you
+              from. If it just found you a few hundred dollars of forgotten charges,
+              a coffee back keeps it alive and ad-free.
+            </p>
+            <a
+              href="https://www.buymeacoffee.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-bg transition hover:bg-accent-deep"
+            >
+              <HeartIcon className="h-4 w-4" /> Pay what you want
+            </a>
+            <p className="mt-3 text-xs text-faint">100% optional · the tool stays fully unlocked either way</p>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="border-t border-border-soft bg-bg-soft/40 py-20">
+        <div className="mx-auto max-w-3xl px-5">
+          <SectionTitle kicker="FAQ" title="The questions a skeptic asks." />
+          <div className="mt-10 space-y-3">
+            <Faq
+              q="How do I know my data isn't being uploaded?"
+              a="Open your browser's network tab, or just disconnect from the internet entirely, then run a scan. It works identically offline — there's no request to a server because there is no server."
+            />
+            <Faq
+              q="What file do I give it?"
+              a="A CSV export from your bank or credit card — almost every bank offers 'Download / Export transactions (CSV)'. We auto-detect the date, description and amount columns across most formats."
+            />
+            <Faq
+              q="Does it store anything between visits?"
+              a="No. Everything lives in the page's memory while the tab is open. Refresh or close it and the data is gone for good. Nothing is written to a server or to long-term storage."
+            />
+            <Faq
+              q="Is it really free? What's the catch?"
+              a="It's genuinely free, with no locked features. The only ask is an optional tip if it saved you money. Because there's no backend, there are no per-user costs to recover."
+            />
+            <Faq
+              q="How accurate is the detection?"
+              a="Each charge group gets a confidence score from how regularly it repeats and how stable the amount is. Statements covering 3+ months give the best results. Always sanity-check before cancelling."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-border-soft py-10">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 text-sm text-faint sm:flex-row">
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-accent/90 text-bg">
+              <ShieldIcon className="h-4 w-4" />
+            </div>
+            <span className="font-medium text-muted">Vaultline</span>
+            <span>· your statement never left this device</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <WifiOffIcon className="h-4 w-4 text-accent" />
+            <span>Built to work with the Wi-Fi off.</span>
+          </div>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; sub?: string }) {
+  return (
+    <div className="mx-auto max-w-2xl text-center">
+      <div className="text-xs font-semibold uppercase tracking-widest text-accent">{kicker}</div>
+      <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+      {sub && <p className="mx-auto mt-4 max-w-xl text-pretty text-muted">{sub}</p>}
     </div>
+  );
+}
+
+function StepCard({ n, icon, title, body }: { n: string; icon: React.ReactNode; title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="flex items-center justify-between">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-dim text-accent">{icon}</div>
+        <span className="font-mono text-sm text-faint">{n}</span>
+      </div>
+      <h3 className="mt-4 font-semibold">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-muted">{body}</p>
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-6 transition hover:border-accent/30">
+      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-dim text-accent">{icon}</div>
+      <h3 className="mt-4 font-semibold">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-muted">{body}</p>
+    </div>
+  );
+}
+
+function CompareCard({ tone, title, points }: { tone: "good" | "bad"; title: string; points: string[] }) {
+  const good = tone === "good";
+  return (
+    <div
+      className={`rounded-xl border p-6 ${
+        good ? "border-accent/30 bg-accent-dim/20" : "border-border bg-surface"
+      }`}
+    >
+      <h3 className={`font-semibold ${good ? "text-accent" : "text-muted"}`}>{title}</h3>
+      <ul className="mt-4 space-y-2.5">
+        {points.map((p, i) => (
+          <li key={i} className="flex items-start gap-2.5 text-sm">
+            <span
+              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                good ? "bg-accent text-bg" : "bg-danger/20 text-danger"
+              }`}
+            >
+              {good ? "✓" : "✕"}
+            </span>
+            <span className={good ? "text-text" : "text-muted"}>{p}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Faq({ q, a }: { q: string; a: string }) {
+  return (
+    <details className="group rounded-xl border border-border bg-surface p-5 [&_summary]:cursor-pointer">
+      <summary className="flex items-center justify-between font-medium marker:content-['']">
+        {q}
+        <span className="ml-4 text-faint transition group-open:rotate-45">+</span>
+      </summary>
+      <p className="mt-3 text-sm leading-relaxed text-muted">{a}</p>
+    </details>
   );
 }

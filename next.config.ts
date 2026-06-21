@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Pin the workspace root so Next stops guessing when stray lockfiles exist higher up.
+  turbopack: {
+    root: dirname(fileURLToPath(import.meta.url)),
+  },
 };
 
 export default nextConfig;
