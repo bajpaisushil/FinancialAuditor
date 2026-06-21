@@ -13,10 +13,12 @@
  *    Their URLs are content-hashed/version-pinned, so the cached copy is always
  *    correct and we avoid re-downloading (the worker is 1.2 MB).
  */
-const CACHE = "auditkosh-v3";
+const CACHE = "auditkosh-v4";
 // NOTE: bump CACHE when pdf.worker.min.mjs changes (a pdfjs-dist upgrade) so the
 // precached worker can't go stale against a newer, mismatched pdf.js chunk.
-const SHELL = ["/", "/index.html", "/pdf.worker.min.mjs"];
+// The app is now served by Next (not a static export), so the shell entry is
+// just "/" — there's no standalone /index.html file to precache.
+const SHELL = ["/", "/pdf.worker.min.mjs"];
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -66,8 +68,8 @@ async function networkFirst(req) {
     if (cached) return cached;
     // Navigation fallback: serve the cached app shell.
     return (
-      (await caches.match("/index.html", { ignoreSearch: true })) ||
       (await caches.match("/", { ignoreSearch: true })) ||
+      (await caches.match("/index.html", { ignoreSearch: true })) ||
       Response.error()
     );
   }

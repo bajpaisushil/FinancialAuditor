@@ -5,6 +5,7 @@ import type { Analysis } from "@/lib/types";
 import { CATEGORY_META, type Category } from "@/lib/categorize";
 import { money } from "@/lib/format";
 import { getAiModel, getAiModelServer, subscribeAiModel } from "@/lib/ai/modelStatus";
+import { getEntitlement, markUsed, payForSmartCategories, SMART_PRICE_INR } from "@/lib/payments";
 import CategoryBreakdown from "./CategoryBreakdown";
 import MonthlyTrend from "./MonthlyTrend";
 import MerchantCard from "./MerchantCard";
@@ -26,12 +27,13 @@ export default function SpendingDashboard({
   // AI-enhanced one. Reset (during render, per React docs) whenever a new
   // statement is analyzed.
   const [view, setView] = useState<Analysis>(analysis);
-  // Which analysis the AI enhancement has been successfully applied to (so the
-  // toggle reads "on"), whether the user explicitly turned it off, and whether
-  // a categorize pass is in flight.
+  // Which analysis the AI enhancement is applied to (toggle reads "on"), whether
+  // the user turned it off, and whether a categorize/payment is in flight.
   const [enhancedFor, setEnhancedFor] = useState<Analysis | null>(null);
   const [userOff, setUserOff] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
   const attemptedFor = useRef<Analysis | null>(null);
   const [seen, setSeen] = useState<Analysis>(analysis);
   if (seen !== analysis) {
@@ -39,39 +41,53 @@ export default function SpendingDashboard({
     setView(analysis);
     setEnhancedFor(null);
     setUserOff(false);
+    // No need to reset attemptedFor here — it's keyed by `analysis`, so a new
+    // statement isn't blocked by a prior one (and writing a ref during render
+    // isn't allowed anyway).
   }
+
+  // Paywall: one free run, then ₹10. Probe localStorage once during render
+  // (client-only) so there's no SSR/hydration mismatch.
+  const [ent, setEnt] = useState({ used: false, paid: false });
+  const [entProbed, setEntProbed] = useState(false);
+  if (!entProbed && typeof window !== "undefined") {
+    setEntProbed(true);
+    setEnt(getEntitlement());
+  }
+  const locked = ent.used && !ent.paid;
 
   // Shared model status — may already be "ready" if the user pre-downloaded the
   // model on the upload screen (the whole point: enable it while still online).
   const model = useSyncExternalStore(subscribeAiModel, getAiModel, getAiModelServer);
   const aiOn = enhancedFor === analysis;
 
-  // Auto-apply the enhancement once the model is ready (and the user hasn't
-  // turned it off). attemptedFor dedupes so a failed categorize doesn't loop.
+  const applyEnhancement = useCallback(async () => {
+    setApplying(true);
+    try {
+      const { enhanceAnalysis } = await import("@/lib/ai/categorizeAI");
+      const enhanced = await enhanceAnalysis(analysis);
+      setView(enhanced);
+      setEnhancedFor(analysis);
+      // A non-paying user's first successful run spends the free trial.
+      if (!getEntitlement().paid) {
+        markUsed();
+        setEnt((e) => ({ ...e, used: true }));
+      }
+    } catch {
+      /* leave base categories in place; model status reflects any error */
+    } finally {
+      setApplying(false);
+    }
+  }, [analysis]);
+
+  // Auto-apply only for users who've PAID (and pre-downloaded the model). We
+  // never auto-spend the free trial — that takes an explicit Enable.
   useEffect(() => {
-    if (model.status !== "ready" || userOff || aiOn) return;
+    if (!ent.paid || model.status !== "ready" || userOff || aiOn) return;
     if (attemptedFor.current === analysis) return;
     attemptedFor.current = analysis;
-    let cancelled = false;
-    setApplying(true);
-    (async () => {
-      try {
-        const { enhanceAnalysis } = await import("@/lib/ai/categorizeAI");
-        const enhanced = await enhanceAnalysis(analysis);
-        if (!cancelled) {
-          setView(enhanced);
-          setEnhancedFor(analysis);
-        }
-      } catch {
-        /* leave base categories in place; model status reflects the error */
-      } finally {
-        if (!cancelled) setApplying(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [model.status, userOff, aiOn, analysis]);
+    applyEnhancement();
+  }, [ent.paid, model.status, userOff, aiOn, analysis, applyEnhancement]);
 
   const { overview, audit } = view;
   // `received` was added after the first release. Guard against an analysis
@@ -87,8 +103,11 @@ export default function SpendingDashboard({
   };
   const [tab, setTab] = useState<Tab>("overview");
 
-  const toggleAi = useCallback(async () => {
-    if (model.status === "downloading" || applying) return;
+  const busy = applying || paying || model.status === "downloading";
+
+  const onAiButton = useCallback(async () => {
+    if (busy) return;
+    setPayError(null);
     if (aiOn) {
       // Turn off — revert to the instant keyword analysis.
       setUserOff(true);
@@ -96,37 +115,61 @@ export default function SpendingDashboard({
       setView(analysis);
       return;
     }
-    // Turn on (or retry). Clear the dedupe guard so the effect re-attempts, and
-    // kick off the download if the model isn't cached yet — the effect applies
-    // the enhancement once it's ready.
-    attemptedFor.current = null;
+    // Free run spent and not paid → charge ₹10 first (verified server-side).
+    if (locked) {
+      setPaying(true);
+      let paid = false;
+      try {
+        paid = await payForSmartCategories();
+      } catch (e) {
+        setPayError(e instanceof Error ? e.message : "Payment couldn’t start.");
+      } finally {
+        setPaying(false);
+      }
+      if (!paid) return; // dismissed or failed
+      setEnt({ used: true, paid: true });
+    }
+    // Entitled → ensure the model is ready, then apply explicitly.
     setUserOff(false);
+    attemptedFor.current = analysis;
     if (model.status !== "ready") {
       try {
         const { warmupModel } = await import("@/lib/ai/categorizeAI");
         await warmupModel();
       } catch {
-        /* model status is now "error"; the button shows Retry */
+        return; // model status shows the error
       }
     }
-  }, [model.status, applying, aiOn, analysis]);
+    await applyEnhancement();
+  }, [busy, aiOn, locked, model.status, analysis, applyEnhancement]);
 
   const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-  const aiLabel = applying
-    ? "Categorizing…"
-    : model.status === "downloading"
-      ? `Downloading… ${model.progress || 0}%`
-      : aiOn
-        ? "On ✓ — turn off"
-        : model.status === "error"
-          ? "Retry"
-          : "Enable";
-  const aiHint =
-    model.status === "error"
+  const aiLabel = paying
+    ? "Opening checkout…"
+    : applying
+      ? "Categorizing…"
+      : model.status === "downloading"
+        ? `Downloading… ${model.progress || 0}%`
+        : aiOn
+          ? "On ✓ — turn off"
+          : model.status === "error"
+            ? "Retry"
+            : locked
+              ? `Unlock for ₹${SMART_PRICE_INR}`
+              : ent.used
+                ? "Enable"
+                : "Enable — 1 free run";
+  const aiHint = payError
+    ? payError
+    : model.status === "error"
       ? offline
         ? "You're offline — reconnect once to download the model, then it works offline."
         : "Couldn't load the model. Check your connection and hit Retry."
-      : "Re-sorts the “Other” pile with a model that runs in your browser. Enabled once while online (~25 MB), it caches and works offline after. Your data never leaves the device.";
+      : locked
+        ? `You've used your free run. Unlock unlimited Smarter categories for ₹${SMART_PRICE_INR} — one-time, on this device. Your data never leaves the device.`
+        : ent.paid
+          ? "Unlocked. Re-sorts the “Other” pile with an on-device model — your data never leaves the device."
+          : "Try it once free — re-sorts the “Other” pile with a model that runs in your browser (~25 MB, works offline after). Your data never leaves the device.";
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
@@ -199,14 +242,22 @@ export default function SpendingDashboard({
           <div>
             <p className="text-sm font-medium">
               Smarter categories{" "}
-              <span className="text-xs font-normal text-faint">· on-device AI</span>
+              <span className="text-xs font-normal text-faint">
+                · on-device AI{locked ? ` · ₹${SMART_PRICE_INR} to unlock` : ent.paid ? " · unlocked" : " · 1 free run"}
+              </span>
             </p>
-            <p className={`text-xs ${model.status === "error" ? "text-danger" : "text-faint"}`}>{aiHint}</p>
+            <p
+              className={`text-xs ${
+                model.status === "error" || payError ? "text-danger" : locked ? "text-text" : "text-faint"
+              }`}
+            >
+              {aiHint}
+            </p>
           </div>
         </div>
         <button
-          onClick={toggleAi}
-          disabled={model.status === "downloading" || applying}
+          onClick={onAiButton}
+          disabled={busy}
           className={`shrink-0 rounded-lg px-3.5 py-2 text-sm font-semibold transition disabled:opacity-70 ${
             aiOn
               ? "border border-accent/40 bg-accent-dim text-accent hover:bg-accent hover:text-bg"
